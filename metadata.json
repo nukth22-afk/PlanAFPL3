@@ -1,0 +1,6 @@
+{
+  "name": "โปรแกรมจัดแพลนช่าง",
+  "description": "ระบบจัดแพลนช่างและกระจายงานภาคสนามอัตโนมัติ คำนวณระยะทางและเวลาเดินทาง รองรับไฟล์ Excel/CSV และไฟล์แพลนเดิม",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
