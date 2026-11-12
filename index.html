@@ -30,7 +30,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="paho-mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+<script>window.Paho || document.write('<script src="paho-mqtt.min.js"><\/script>');</script>
 <style>
 /* ===== Unified Minimalist Design System & Micro-Interactions ===== */
 :root {
@@ -1755,8 +1756,10 @@ async function calculateRealRoutesForDate(date) {
   S.routes = S.routes || {};
   let calculatedCount = 0;
 
-  // 1. First attempt: Check backend /api/routes/batch (if running with Google Maps API key on dev server)
+  // 1. First attempt: Check backend /api/routes/batch (if running on local dev server)
   let backendHandled = false;
+  const isStaticHost = window.location.hostname.endsWith("github.io") || window.location.protocol === "file:";
+  if (!isStaticHost) {
   try {
     const res = await fetch("/api/routes/batch", {
       method: "POST",
@@ -1790,6 +1793,7 @@ async function calculateRealRoutesForDate(date) {
       }
     }
   } catch(e) {}
+  }
 
   // 2. If not handled by backend (e.g. running on GitHub Pages or no Google Maps key), use direct client-side OSRM routing
   if (!backendHandled) {
@@ -3014,6 +3018,8 @@ async function ensureGoogleMapsLoaded() {
   if (gmapLoadingPromise) return gmapLoadingPromise;
   gmapLoadingPromise = (async () => {
     try {
+      const isStaticHost = window.location.hostname.endsWith("github.io") || window.location.protocol === "file:";
+      if (isStaticHost) return false;
       let key = '';
       try {
         const res = await fetch('/api/maps/config');
@@ -4210,6 +4216,7 @@ function initPresenceTracker() {
 
   // ===== Layer 3: Backend Heartbeat (Local dev / Cloud Run) =====
   function pingBackend() {
+    if (window.location.hostname.endsWith("github.io") || window.location.protocol === "file:") return;
     fetch("/api/presence/heartbeat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -4243,7 +4250,7 @@ function initPresenceTracker() {
     try {
       broadcastLocal("leave");
       publishMqtt("leave");
-      if (navigator.sendBeacon) {
+      if (!window.location.hostname.endsWith("github.io") && window.location.protocol !== "file:" && navigator.sendBeacon) {
         navigator.sendBeacon("/api/presence/leave", JSON.stringify({ sessionId: tabSessionId }));
       }
     } catch(e){}
