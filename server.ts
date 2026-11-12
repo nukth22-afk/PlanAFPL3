@@ -151,19 +151,73 @@ async function callComputeRoute(origin: LatLon, destination: LatLon, apiKey: str
   }
 }
 
+function encodePolyline(coords: Array<{ lat: number; lon: number }>): string {
+  function encodeValue(val: number): string {
+    let num = Math.round(val * 1e5);
+    num = num < 0 ? ~(num << 1) : num << 1;
+    let str = '';
+    while (num >= 0x20) {
+      str += String.fromCharCode((0x20 | (num & 0x1f)) + 63);
+      num >>= 5;
+    }
+    str += String.fromCharCode(num + 63);
+    return str;
+  }
+  let str = '', prevLat = 0, prevLng = 0;
+  for (let i = 0; i < coords.length; i++) {
+    const lat = coords[i].lat, lng = coords[i].lon;
+    str += encodeValue(lat - prevLat);
+    str += encodeValue(lng - prevLng);
+    prevLat = lat;
+    prevLng = lng;
+  }
+  return str;
+}
+
 // Fallback estimation using realistic Bangkok road circuity (1.35x) and average speed (22 km/h in traffic)
 function fallbackEstimate(origin: LatLon, destination: LatLon) {
   const directMeters = haversineMeters(origin, destination);
   const roadMeters = Math.round(directMeters * 1.35);
   // Average city driving speed: 22 km/h = 6.11 m/s
   const durationSeconds = Math.round(roadMeters / 6.11) + 120; // +2 mins for intersections/stops
+  const pts: Array<{ lat: number; lon: number }> = [];
+  const steps = 8;
+  for (let s = 0; s <= steps; s++) {
+    const f = s / steps;
+    const curve = Math.sin(f * Math.PI) * 0.0018;
+    pts.push({
+      lat: origin.lat + (destination.lat - origin.lat) * f + curve,
+      lon: origin.lon + (destination.lon - origin.lon) * f - curve,
+    });
+  }
   return {
     status: 200,
     distanceMeters: roadMeters,
     durationSeconds,
-    polyline: '',
+    polyline: encodePolyline(pts),
     source: 'fallback_estimate',
   };
+}
+
+async function getRoadRoute(origin: LatLon, destination: LatLon) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${destination.lon},${destination.lat};${origin.lon},${origin.lat}?overview=full&geometries=polyline`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.code === 'Ok' && data.routes?.[0]) {
+        const r = data.routes[0];
+        return {
+          status: 200,
+          distanceMeters: Math.round(r.distance),
+          durationSeconds: Math.round(r.duration),
+          polyline: r.geometry,
+          source: 'osrm',
+        };
+      }
+    }
+  } catch {}
+  return fallbackEstimate(origin, destination);
 }
 
 // Single route calculation endpoint
@@ -191,7 +245,7 @@ app.post('/api/routes/compute', async (req: Request, res: Response) => {
       });
     }
 
-    const fallback = fallbackEstimate(origin, destination);
+    const fallback = await getRoadRoute(origin, destination);
     return res.json(fallback);
   } catch (err: any) {
     return res.status(500).json({ error: err?.message || 'Server internal error' });
@@ -222,7 +276,7 @@ app.post('/api/routes/batch', async (req: Request, res: Response) => {
 
           if (quotaExceeded || apiDisabledOrDenied || !apiKey) {
             results[key] = {
-              ...fallbackEstimate(p.origin, p.destination),
+              ...(await getRoadRoute(p.origin, p.destination)),
               quotaExceeded,
               apiDisabled: apiDisabledOrDenied,
             };
@@ -234,27 +288,26 @@ app.post('/api/routes/batch', async (req: Request, res: Response) => {
             if (resSingle.status === 429) {
               quotaExceeded = true;
               results[key] = {
-                ...fallbackEstimate(p.origin, p.destination),
+                ...(await getRoadRoute(p.origin, p.destination)),
                 quotaExceeded: true,
                 error: 'RESOURCE_EXHAUSTED',
               };
             } else if ((resSingle as any).permanentError) {
               apiDisabledOrDenied = true;
               results[key] = {
-                ...fallbackEstimate(p.origin, p.destination),
+                ...(await getRoadRoute(p.origin, p.destination)),
                 apiWarning: resSingle.message,
-                source: 'fallback_estimate',
               };
             } else if (resSingle.status === 200) {
               results[key] = resSingle;
             } else {
               results[key] = {
-                ...fallbackEstimate(p.origin, p.destination),
+                ...(await getRoadRoute(p.origin, p.destination)),
                 apiWarning: resSingle.message,
               };
             }
           } catch {
-            results[key] = fallbackEstimate(p.origin, p.destination);
+            results[key] = await getRoadRoute(p.origin, p.destination);
           }
         })
       );

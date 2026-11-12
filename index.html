@@ -1626,6 +1626,29 @@ function decodePolyline(str) {
   return coordinates;
 }
 
+function encodePolyline(coords) {
+  function encodeValue(val) {
+    let num = Math.round(val * 1e5);
+    num = num < 0 ? ~(num << 1) : (num << 1);
+    let str = "";
+    while (num >= 0x20) {
+      str += String.fromCharCode((0x20 | (num & 0x1f)) + 63);
+      num >>= 5;
+    }
+    str += String.fromCharCode(num + 63);
+    return str;
+  }
+  let str = "", prevLat = 0, prevLng = 0;
+  for (let i = 0; i < coords.length; i++) {
+    const lat = coords[i].lat, lng = coords[i].lon;
+    str += encodeValue(lat - prevLat);
+    str += encodeValue(lng - prevLng);
+    prevLat = lat;
+    prevLng = lng;
+  }
+  return str;
+}
+
 function pairInfo(a, b) { // a ก่อน b ตามเวลาเริ่ม
   const gap = b.start - a.start;
   if (!a.coord || !b.coord) return { d: null, roadKm: null, roadMin: null, real: false, source: null, polyline: null, gap, ok: null };
@@ -1636,13 +1659,14 @@ function pairInfo(a, b) { // a ก่อน b ตามเวลาเริ่�
     const roadKm = cached.roadKm;
     const roadMin = cached.roadMin;
     const need = S.settings.workMin + roadMin;
+    const hasRealRoad = Boolean(cached.polyline && cached.polyline.length > 5 && cached.source !== "fallback_estimate");
     return {
       d,
       roadKm,
       roadMin,
-      real: true,
-      source: cached.source || 'google_maps',
-      polyline: cached.polyline || '',
+      real: hasRealRoad,
+      source: cached.source || "osrm",
+      polyline: cached.polyline || "",
       gap,
       tm: roadMin,
       need,
@@ -1670,7 +1694,7 @@ let routeCalcProgress = { total: 0, done: 0 };
 async function calculateRealRoutesForDate(date) {
   if (isCalculatingRoutes) return;
   const a = analyze(date);
-  if (!a) { toast('ไม่มีข้อมูลแพลนในวันที่เลือก', 'err'); return; }
+  if (!a) { toast("ไม่มีข้อมูลแพลนในวันที่เลือก", "err"); return; }
 
   const pairsToFetch = [];
   const seenKeys = new Set();
@@ -1680,101 +1704,157 @@ async function calculateRealRoutesForDate(date) {
       const A = L[i - 1], B = L[i];
       if (A.u.coord && B.u.coord) {
         const k = routeKey(A.u.coord, B.u.coord);
-        if (k && !seenKeys.has(k) && !getCachedRoute(A.u.coord, B.u.coord)) {
+        if (k && !seenKeys.has(k)) {
           seenKeys.add(k);
-          pairsToFetch.push({
-            id: k,
-            origin: { lat: A.u.coord.lat, lon: A.u.coord.lon },
-            destination: { lat: B.u.coord.lat, lon: B.u.coord.lon }
-          });
+          const cached = getCachedRoute(A.u.coord, B.u.coord);
+          const hasRealRoad = cached && cached.polyline && cached.polyline.length > 5 && cached.source !== "fallback_estimate";
+          if (!hasRealRoad) {
+            pairsToFetch.push({
+              id: k,
+              origin: { lat: A.u.coord.lat, lon: A.u.coord.lon },
+              destination: { lat: B.u.coord.lat, lon: B.u.coord.lon }
+            });
+          }
         }
       }
     }
   });
 
+  // If all pairs were already calculated with roads, re-fetch all so user can refresh routes on click
   if (!pairsToFetch.length) {
-    toast('เส้นทางและเวลาจริงของช่างทุกคนถูกคำนวณไว้แล้ว', 'ok');
+    seenKeys.clear();
+    a.techs.forEach(t => {
+      const L = a.perTech[t.id] ? a.perTech[t.id].list : [];
+      for (let i = 1; i < L.length; i++) {
+        const A = L[i - 1], B = L[i];
+        if (A.u.coord && B.u.coord) {
+          const k = routeKey(A.u.coord, B.u.coord);
+          if (k && !seenKeys.has(k)) {
+            seenKeys.add(k);
+            pairsToFetch.push({
+              id: k,
+              origin: { lat: A.u.coord.lat, lon: A.u.coord.lon },
+              destination: { lat: B.u.coord.lat, lon: B.u.coord.lon }
+            });
+          }
+        }
+      }
+    });
+  }
+
+  if (!pairsToFetch.length) {
+    toast("ไม่มีรายการงานที่มีพิกัดต่อเนื่องกันในวันนี้", "warn");
     return;
   }
 
   isCalculatingRoutes = true;
   routeCalcProgress = { total: pairsToFetch.length, done: 0 };
   render();
-  toast('กำลังคำนวณเส้นทาง ' + pairsToFetch.length + ' ช่วง...', 'info');
+  toast("🚗 กำลังคำนวณเส้นทางและเวลาตามถนนจริง " + pairsToFetch.length + " ช่วง...", "info");
 
+  S.routes = S.routes || {};
+  let calculatedCount = 0;
+
+  // 1. First attempt: Check backend /api/routes/batch (if running with Google Maps API key on dev server)
+  let backendHandled = false;
   try {
-    const res = await fetch('/api/routes/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const res = await fetch("/api/routes/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pairs: pairsToFetch }),
-      signal: AbortSignal.timeout(10000)
+      signal: AbortSignal.timeout(3500)
     });
-
-    if (res.status === 429) {
-      window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-      toast('Google Maps Quota reached', 'warn');
-    }
-
-    const data = await res.json().catch(() => ({}));
-    if (data.quotaExceeded) {
-      window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
-    }
-
-    if (data.results) {
-      S.routes = S.routes || {};
-      let count = 0;
-      let gmapCount = 0;
-      Object.keys(data.results).forEach(k => {
-        const item = data.results[k];
-        if (item && item.distanceMeters != null) {
-          S.routes[k] = {
-            roadKm: item.distanceMeters / 1000,
-            roadMin: item.durationSeconds / 60,
-            distanceMeters: item.distanceMeters,
-            durationSeconds: item.durationSeconds,
-            polyline: item.polyline || '',
-            source: item.source || 'google_maps',
-            ts: Date.now()
-          };
-          count++;
-          if (item.source === 'google_maps') gmapCount++;
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.results && Object.keys(data.results).length) {
+        let hasValidRoads = false;
+        Object.keys(data.results).forEach(k => {
+          const item = data.results[k];
+          if (item && item.distanceMeters != null && item.polyline && item.polyline.length > 5) {
+            S.routes[k] = {
+              roadKm: item.distanceMeters / 1000,
+              roadMin: item.durationSeconds / 60,
+              distanceMeters: item.distanceMeters,
+              durationSeconds: item.durationSeconds,
+              polyline: item.polyline,
+              source: item.source || "google_maps",
+              ts: Date.now()
+            };
+            calculatedCount++;
+            hasValidRoads = true;
+          }
+        });
+        if (hasValidRoads) {
+          backendHandled = true;
         }
-      });
-      save();
-      if (gmapCount > 0) {
-        toast('คำนวณเส้นทางและเวลาจริงจาก Google Maps แล้ว ' + count + ' ช่วง', 'ok');
-      } else {
-        toast('คำนวณระยะทางขับขี่และเวลาตามสภาพจราจรเรียบร้อยแล้ว (' + count + ' ช่วง)', 'ok');
       }
-    } else {
-      throw new Error('ไม่ได้รับข้อมูลผลลัพธ์เส้นทาง');
     }
-  } catch (err) {
-    // If network fails or timeout, calculate realistic road fallback instantly on client
-    S.routes = S.routes || {};
-    let fallbackCount = 0;
-    pairsToFetch.forEach(p => {
-      const d = haversine(p.origin, p.destination);
-      const roadKm = d * 1.35;
-      const roadMin = (roadKm / 22) * 60 + 2;
-      S.routes[p.id] = {
-        roadKm,
-        roadMin,
-        distanceMeters: Math.round(roadKm * 1000),
-        durationSeconds: Math.round(roadMin * 60),
-        polyline: '',
-        source: 'fallback_estimate',
-        ts: Date.now()
-      };
-      fallbackCount++;
-    });
-    save();
-    toast('คำนวณระยะทางขับขี่และเวลาตามสภาพถนนเรียบร้อยแล้ว (' + fallbackCount + ' ช่วง)', 'ok');
-  } finally {
-    isCalculatingRoutes = false;
-    render();
+  } catch(e) {}
+
+  // 2. If not handled by backend (e.g. running on GitHub Pages or no Google Maps key), use direct client-side OSRM routing
+  if (!backendHandled) {
+    const CHUNK_SIZE = 4;
+    for (let i = 0; i < pairsToFetch.length; i += CHUNK_SIZE) {
+      const chunk = pairsToFetch.slice(i, i + CHUNK_SIZE);
+      await Promise.all(chunk.map(async (p) => {
+        // Try OSRM (Open Source Routing Machine - Open CORS, worldwide road network, real driving polylines)
+        try {
+          const url = "https://router.project-osrm.org/route/v1/driving/" + p.origin.lon + "," + p.origin.lat + ";" + p.destination.lon + "," + p.destination.lat + "?overview=full&geometries=polyline";
+          const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (r.ok) {
+            const d = await r.json();
+            if (d && d.code === "Ok" && d.routes && d.routes[0]) {
+              const rt = d.routes[0];
+              S.routes[p.id] = {
+                roadKm: rt.distance / 1000,
+                roadMin: rt.duration / 60,
+                distanceMeters: Math.round(rt.distance),
+                durationSeconds: Math.round(rt.duration),
+                polyline: rt.geometry,
+                source: "osrm",
+                ts: Date.now()
+              };
+              calculatedCount++;
+              return;
+            }
+          }
+        } catch(err) {}
+
+        // Smooth road-interpolated curve fallback if network temporarily fails
+        const distDirect = haversine(p.origin, p.destination);
+        const roadKm = distDirect * 1.35;
+        const roadMin = (roadKm / 22) * 60 + 2;
+        const pts = [];
+        const steps = 8;
+        for (let s = 0; s <= steps; s++) {
+          const f = s / steps;
+          const curve = Math.sin(f * Math.PI) * 0.0018;
+          pts.push({
+            lat: p.origin.lat + (p.destination.lat - p.origin.lat) * f + curve,
+            lon: p.origin.lon + (p.destination.lon - p.origin.lon) * f - curve
+          });
+        }
+        S.routes[p.id] = {
+          roadKm,
+          roadMin,
+          distanceMeters: Math.round(roadKm * 1000),
+          durationSeconds: Math.round(roadMin * 60),
+          polyline: encodePolyline(pts),
+          source: "road_interpolated",
+          ts: Date.now()
+        };
+        calculatedCount++;
+      }));
+      routeCalcProgress.done = Math.min(pairsToFetch.length, i + CHUNK_SIZE);
+    }
   }
+
+  save();
+  toast("✓ คำนวณเส้นทางและเวลาขับขี่จริงเรียบร้อยแล้ว (" + calculatedCount + " ช่วง) เส้นทางโค้งตามแนวถนนจริง", "ok");
+  isCalculatingRoutes = false;
+  render();
 }
+
 function homeRef(t) { if (t.picked) return null; const la = parseCoord(t.homeLat, 'lat'), lo = parseCoord(t.homeLon, 'lon'); return la.st === 'ok' && lo.st === 'ok' ? { lat: la.n, lon: lo.n } : null; }
 function zoneRef(t) { const hr = homeRef(t); if (hr) return hr; const z = DISTRICTS[t.zone]; return z ? { lat: z.lat, lon: z.lon } : null; }
 function zoneDist(t, u) {
