@@ -199,6 +199,57 @@ code { font-family: var(--mono); font-size: 12px; }
   box-shadow: 0 3px 10px rgba(220, 38, 38, 0.22) !important;
 }
 
+/* ===== Online Active Users Badge (วางต่อจาก ลบข้อมูลทั้งหมด ชิดขวาสุดของหน้าจอ) ===== */
+.online-users-badge {
+  margin-left: auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 5px 11px !important;
+  border-radius: 99px !important;
+  background: #ffffff !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: var(--shadow-sm) !important;
+  color: #0f172a !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  user-select: none !important;
+  white-space: nowrap !important;
+  transition: all 0.16s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.online-users-badge:hover {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06) !important;
+}
+.online-dot {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background: #22c55e !important;
+  display: inline-block !important;
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7) !important;
+  animation: pulseDot 2s infinite cubic-bezier(0.45, 0, 0.55, 1) !important;
+}
+@keyframes pulseDot {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+.online-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  color: #059669 !important;
+  font-size: 14px !important;
+}
+.online-num {
+  font-weight: 700 !important;
+  color: #0f172a !important;
+  font-variant-numeric: tabular-nums !important;
+  font-size: 13.5px !important;
+}
+
 /* ===== Technician Table Actions (Modern Micro-Buttons) ===== */
 .tech-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
 .tech-actions .btn.tiny {
@@ -2321,11 +2372,18 @@ function renderTabs(a) {
     ['settings', 'ตั้งค่า / สำรองข้อมูล'],
     ['reset', 'ลบข้อมูลทั้งหมด']
   ];
-  $('tabs').innerHTML = T.map(([k, l]) => {
+  const btns = T.map(([k, l]) => {
     const isReset = k === 'reset';
     const cls = (tab === k ? 'on ' : '') + (isReset ? 'tab-reset ' : '');
     return '<button role="tab" aria-selected="' + (tab === k) + '" class="' + cls.trim() + '" data-act="tab" data-tab="' + k + '">' + h(l) + '</button>';
   }).join('');
+  const n = window._currentOnlineUsers || 1;
+  const badge = '<div class="online-users-badge" id="onlineBadge" title="มีผู้ใช้งานออนไลน์อยู่ในระบบขณะนี้ ' + n + ' คน" role="status" aria-live="polite">' +
+    '<span class="online-dot" aria-hidden="true"></span>' +
+    '<span class="online-icon" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>' +
+    '<span class="online-num" id="onlineUserCount">' + n + '</span>' +
+  '</div>';
+  $('tabs').innerHTML = btns + badge;
 }
 
 /* ===== Main render ===== */
@@ -3880,7 +3938,65 @@ async function init() {
   reparseAll();
   if (S.selectedDate && jobsOn(S.selectedDate).length && !S.plans[S.selectedDate]) replan(S.selectedDate, 'เปิดโปรแกรม');
   render();
+  initPresenceTracker();
   window.__app = { get S() { return S; }, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
+}
+
+function initPresenceTracker() {
+  let sessionId = '';
+  try {
+    sessionId = sessionStorage.getItem('applet_session_id') || '';
+  } catch(e){}
+  if (!sessionId) {
+    sessionId = 'usr_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now();
+    try { sessionStorage.setItem('applet_session_id', sessionId); } catch(e){}
+  }
+
+  function setOnlineBadge(n) {
+    const num = Math.max(1, Number(n) || 1);
+    window._currentOnlineUsers = num;
+    const el = document.getElementById('onlineUserCount');
+    if (el) el.textContent = num;
+    const badge = document.getElementById('onlineBadge');
+    if (badge) badge.title = 'มีผู้ใช้งานออนไลน์อยู่ในระบบขณะนี้ ' + num + ' คน';
+  }
+
+  function connectSSE() {
+    try {
+      const es = new EventSource('/api/presence/stream?sessionId=' + encodeURIComponent(sessionId));
+      es.onmessage = e => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d && typeof d.count === 'number') {
+            setOnlineBadge(d.count);
+          }
+        } catch(err){}
+      };
+      es.onerror = () => {
+        try { es.close(); } catch(err){}
+        setTimeout(connectSSE, 6000);
+      };
+    } catch(err) {
+      setTimeout(connectSSE, 6000);
+    }
+  }
+
+  function ping() {
+    fetch('/api/presence/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d && typeof d.count === 'number') setOnlineBadge(d.count);
+    })
+    .catch(() => {});
+  }
+
+  connectSSE();
+  setInterval(ping, 15000);
+  ping();
 }
 
 init();

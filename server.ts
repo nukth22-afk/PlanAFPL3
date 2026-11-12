@@ -7,8 +7,18 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+function getPort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    return Number(process.argv[portArgIndex + 1]);
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return Number(process.env.PORT) || 3000;
+  }
+  return 3000;
+}
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = getPort();
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -268,6 +278,94 @@ app.get('/api/maps/config', (_req: Request, res: Response) => {
     apiKey,
     attribution: 'gmp_mcp_codeassist_v1_aistudio',
   });
+});
+
+// ===== Real-Time Active Users Presence System =====
+interface ActiveSession {
+  lastSeen: number;
+  res?: Response;
+}
+
+const activeSessions = new Map<string, ActiveSession>();
+
+function getActiveUserCount(): number {
+  return Math.max(1, activeSessions.size);
+}
+
+function broadcastPresence() {
+  const count = getActiveUserCount();
+  const payload = `data: ${JSON.stringify({ type: 'presence', count, timestamp: Date.now() })}\n\n`;
+  for (const [id, session] of activeSessions.entries()) {
+    if (session.res && !session.res.writableEnded) {
+      try {
+        session.res.write(payload);
+      } catch {
+        activeSessions.delete(id);
+      }
+    }
+  }
+}
+
+// Prune inactive sessions every 10 seconds
+setInterval(() => {
+  const now = Date.now();
+  let changed = false;
+  for (const [id, session] of activeSessions.entries()) {
+    if (now - session.lastSeen > 35000) {
+      activeSessions.delete(id);
+      changed = true;
+    }
+  }
+  if (changed) {
+    broadcastPresence();
+  }
+}, 10000);
+
+// SSE stream for real-time presence updates
+app.get('/api/presence/stream', (req: Request, res: Response) => {
+  const sessionId = String(req.query.sessionId || '').trim() || `usr_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  activeSessions.set(sessionId, { lastSeen: Date.now(), res });
+  broadcastPresence();
+
+  // Keep connection alive with periodic comments
+  const keepAliveInterval = setInterval(() => {
+    if (!res.writableEnded) {
+      res.write(': keepalive\n\n');
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAliveInterval);
+    activeSessions.delete(sessionId);
+    broadcastPresence();
+  });
+});
+
+// Heartbeat endpoint
+app.post('/api/presence/heartbeat', (req: Request, res: Response) => {
+  const sessionId = String(req.body?.sessionId || '').trim();
+  if (sessionId) {
+    const existing = activeSessions.get(sessionId);
+    if (existing) {
+      existing.lastSeen = Date.now();
+    } else {
+      activeSessions.set(sessionId, { lastSeen: Date.now() });
+      broadcastPresence();
+    }
+  }
+  res.json({ count: getActiveUserCount() });
+});
+
+// Presence count query endpoint
+app.get('/api/presence/count', (_req: Request, res: Response) => {
+  res.json({ count: getActiveUserCount() });
 });
 
 async function startServer() {
