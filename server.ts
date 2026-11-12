@@ -20,6 +20,16 @@ function getPort(): number {
 const app = express();
 const PORT = getPort();
 
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 
 interface LatLon {
@@ -287,7 +297,7 @@ interface ActiveSession {
 }
 
 const activeSessions = new Map<string, ActiveSession>();
-const SESSION_TTL_MS = 30000; // 30 seconds sliding window
+const SESSION_TTL_MS = 15000; // 15 seconds sliding window
 
 function getActiveUserCount(): number {
   const now = Date.now();

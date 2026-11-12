@@ -30,6 +30,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="paho-mqtt.min.js"></script>
 <style>
 /* ===== Unified Minimalist Design System & Micro-Interactions ===== */
 :root {
@@ -3976,82 +3977,205 @@ async function init() {
 }
 
 function initPresenceTracker() {
-  let clientId = '';
+  // Generate a distinct session ID for every individual open tab/window
+  const tabSessionId = "u_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now().toString(36);
+  let deviceId = "";
   try {
-    clientId = localStorage.getItem('applet_device_id') || sessionStorage.getItem('applet_device_id') || '';
+    deviceId = localStorage.getItem("applet_device_id") || "";
+    if (!deviceId) {
+      deviceId = "dev_" + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem("applet_device_id", deviceId);
+    }
+  } catch(e) {
+    deviceId = tabSessionId;
+  }
+
+  // Active sessions map: sessionId -> lastSeenTimestamp
+  const activeSessions = new Map();
+  activeSessions.set(tabSessionId, Date.now());
+  let serverReportedCount = 1;
+
+  function recalculateCount() {
+    const now = Date.now();
+    activeSessions.set(tabSessionId, now);
+    for (const [id, ts] of activeSessions.entries()) {
+      if (now - ts > 12000) {
+        activeSessions.delete(id);
+      }
+    }
+    const finalCount = Math.max(1, activeSessions.size, serverReportedCount);
+    window._currentOnlineUsers = finalCount;
+    const el = document.getElementById("onlineUserCount");
+    if (el && el.textContent !== String(finalCount)) {
+      el.textContent = finalCount;
+    }
+    const badge = document.getElementById("onlineBadge");
+    if (badge) {
+      badge.title = "มีผู้ใช้งานออนไลน์อยู่ในระบบขณะนี้ " + finalCount + " คน";
+    }
+  }
+
+  // ===== Layer 1: Local Cross-Tab Sync (BroadcastChannel) =====
+  let bc = null;
+  try {
+    if ("BroadcastChannel" in window) {
+      bc = new BroadcastChannel("planafp_presence_channel_v1");
+      bc.onmessage = function(e) {
+        const d = e.data;
+        if (!d || !d.id || d.id === tabSessionId) return;
+        if (d.type === "leave") {
+          activeSessions.delete(d.id);
+        } else {
+          activeSessions.set(d.id, Date.now());
+        }
+        recalculateCount();
+      };
+    }
   } catch(e){}
-  if (!clientId) {
-    clientId = 'dev_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now().toString(36);
+
+  function broadcastLocal(type) {
+    if (bc) {
+      try {
+        bc.postMessage({ id: tabSessionId, dev: deviceId, type: type, ts: Date.now() });
+      } catch(e){}
+    }
+  }
+
+  // ===== Layer 2: Global Real-Time MQTT over WebSocket (Works across devices on GitHub Pages) =====
+  const MQTT_TOPIC = "planafp/presence/live_hub_v1";
+  let mqttClient = null;
+  let mqttConnected = false;
+  const BROKER_SERVERS = [
+    { host: "broker.emqx.io", port: 8084, path: "/mqtt" },
+    { host: "broker.hivemq.com", port: 8884, path: "/mqtt" }
+  ];
+  let currentBrokerIndex = 0;
+
+  function initMqtt() {
+    if (typeof Paho === "undefined" || !Paho.Client) {
+      if (!window.__pahoLoading) {
+        window.__pahoLoading = true;
+        try {
+          const s = document.createElement("script");
+          s.src = "https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js";
+          s.onload = function() { setTimeout(initMqtt, 100); };
+          document.head.appendChild(s);
+        } catch(e){}
+      }
+      setTimeout(initMqtt, 1000);
+      return;
+    }
+    const broker = BROKER_SERVERS[currentBrokerIndex % BROKER_SERVERS.length];
     try {
-      localStorage.setItem('applet_device_id', clientId);
-      sessionStorage.setItem('applet_device_id', clientId);
-    } catch(e){}
+      mqttClient = new Paho.Client(broker.host, broker.port, broker.path, "afp_" + tabSessionId);
+      mqttClient.onConnectionLost = function(resp) {
+        mqttConnected = false;
+        currentBrokerIndex++;
+        setTimeout(initMqtt, 3000);
+      };
+      mqttClient.onMessageArrived = function(msg) {
+        try {
+          const data = JSON.parse(msg.payloadString);
+          if (data && data.id && data.id !== tabSessionId) {
+            if (data.type === "leave") {
+              activeSessions.delete(data.id);
+            } else {
+              activeSessions.set(data.id, Date.now());
+            }
+            recalculateCount();
+          }
+        } catch(e){}
+      };
+
+      const willMsg = new Paho.Message(JSON.stringify({ id: tabSessionId, type: "leave" }));
+      willMsg.destinationName = MQTT_TOPIC;
+      willMsg.qos = 0;
+
+      mqttClient.connect({
+        useSSL: true,
+        timeout: 5,
+        keepAliveInterval: 20,
+        cleanSession: true,
+        willMessage: willMsg,
+        onSuccess: function() {
+          mqttConnected = true;
+          try {
+            mqttClient.subscribe(MQTT_TOPIC);
+            publishMqtt("ping");
+          } catch(e){}
+        },
+        onFailure: function() {
+          mqttConnected = false;
+          currentBrokerIndex++;
+          setTimeout(initMqtt, 3500);
+        }
+      });
+    } catch(err) {
+      currentBrokerIndex++;
+      setTimeout(initMqtt, 4000);
+    }
   }
 
-  function setOnlineBadge(n) {
-    const num = Math.max(1, Number(n) || 1);
-    window._currentOnlineUsers = num;
-    const el = document.getElementById('onlineUserCount');
-    if (el) el.textContent = num;
-    const badge = document.getElementById('onlineBadge');
-    if (badge) badge.title = 'มีผู้ใช้งานออนไลน์อยู่ในระบบขณะนี้ ' + num + ' คน';
+  function publishMqtt(type) {
+    if (mqttClient && mqttConnected) {
+      try {
+        const payload = JSON.stringify({ id: tabSessionId, dev: deviceId, type: type, ts: Date.now() });
+        const m = new Paho.Message(payload);
+        m.destinationName = MQTT_TOPIC;
+        m.qos = 0;
+        mqttClient.send(m);
+      } catch(e){}
+    }
   }
 
-  function ping() {
-    fetch('/api/presence/heartbeat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId: clientId })
+  // ===== Layer 3: Backend Heartbeat (Local dev / Cloud Run) =====
+  function pingBackend() {
+    fetch("/api/presence/heartbeat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: tabSessionId, deviceId: deviceId })
     })
-    .then(r => r.json())
+    .then(r => r.ok ? r.json() : null)
     .then(d => {
-      if (d && typeof d.count === 'number') {
-        setOnlineBadge(d.count);
+      if (d && typeof d.count === "number") {
+        serverReportedCount = d.count;
+        recalculateCount();
       }
     })
     .catch(() => {});
   }
 
-  function connectSSE() {
-    try {
-      const es = new EventSource('/api/presence/stream?sessionId=' + encodeURIComponent(clientId));
-      es.onmessage = e => {
-        try {
-          const d = JSON.parse(e.data);
-          if (d && typeof d.count === 'number') {
-            setOnlineBadge(d.count);
-          }
-        } catch(err){}
-      };
-      es.onerror = () => {
-        try { es.close(); } catch(err){}
-        setTimeout(connectSSE, 4000);
-      };
-    } catch(err) {
-      setTimeout(connectSSE, 4000);
-    }
+  // Pulse & Heartbeat cycle
+  function pulse() {
+    broadcastLocal("ping");
+    publishMqtt("ping");
+    pingBackend();
+    recalculateCount();
   }
 
-  // Initial ping & SSE connection
-  ping();
-  connectSSE();
+  // Start connections
+  initMqtt();
+  pulse();
+  setInterval(pulse, 3500);
 
-  // Fast reliable heartbeat every 4 seconds
-  setInterval(ping, 4000);
-
-  // Send leave beacon on tab/browser close
-  window.addEventListener('beforeunload', () => {
+  // Send leave notifications on tab / browser close
+  function handleLeave() {
     try {
+      broadcastLocal("leave");
+      publishMqtt("leave");
       if (navigator.sendBeacon) {
-        navigator.sendBeacon('/api/presence/leave', JSON.stringify({ sessionId: clientId }));
+        navigator.sendBeacon("/api/presence/leave", JSON.stringify({ sessionId: tabSessionId }));
       }
     } catch(e){}
-  });
+  }
 
-  // Re-sync immediately when tab gains focus
-  document.addEventListener('visibilitychange', () => {
+  window.addEventListener("beforeunload", handleLeave);
+  window.addEventListener("pagehide", handleLeave);
+
+  // Re-sync immediately when tab is switched back to
+  document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
-      ping();
+      pulse();
     }
   });
 }
