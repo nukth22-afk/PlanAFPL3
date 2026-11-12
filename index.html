@@ -3719,7 +3719,7 @@ function validateModal() {
   add('งานที่จัดไม่ได้', a.unassigned.length, a.unassigned.map(u => u.jobs[0].access));
   const p = S.plans[d]; if (p && !isFrozen(p) && p.status !== 'cancelled') refreshStatus(d);
   render();
-  openModal('<h2>ผลตรวจสอบข้อมูลและแพลน ' + fmtDateTH(d) + '</h2><div class="mbody"><table class="data"><thead><tr><th>รายการตรวจ</th><th>ผล</th><th>จำนวน</th><th>ตัวอย่าง (Access Number)</th></tr></thead><tbody>' + rows.map(r => '<tr><td>' + h(r.label) + '</td><td>' + (r.ok ? pill('ok', 'ผ่าน', '✓') : pill('warn', 'ต้องดู', '⚠')) + '</td><td class="num">' + r.n + '</td><td><small>' + r.list.map(h).join(', ') + '</small></td></tr>').join('') + '</tbody></table><p class="muted small">การตรวจใช้กฎที่โปรแกรมคำนวณได้เท่านั้น (ระยะเส้นตรง เวลาเดินทางประมาณ) ไม่ได้รับรองว่าเดินทางทันจริงบนถนน</p></div><div class="mfoot"><button class="btn primary" data-act="closeModal">ปิด</button></div>', true);
+  openModal('<h2>ผลตรวจสอบข้อมูลและแพลน ' + fmtDateTH(d) + '</h2><div class="mbody"><table class="data"><thead><tr><th>รายการตรวจ</th><th>ผล</th><th>จำนวน</th><th>ตัวอย่าง (Access Number)</th></tr></thead><tbody>' + rows.map(r => '<tr><td>' + h(r.label) + '</td><td>' + (r.ok ? pill('ok', 'ผ่าน', '✓') : pill('warn', 'ต้องดู', '⚠')) + '</td><td class="num">' + r.n + '</td><td><small>' + r.list.map(h).join(', ') + '</small></td></tr>').join('') + '</tbody></table><p class="muted small">การตรวจใช้กฎที่โปรแกรมคำนวณได้เท่านั้น (ระยะเส้นตรง เวลาเดินทางประมาณ) ไม่ได้รับรองว่าเดินทางทันจริงบนถนน</p></div><div class="mfoot" style="display:flex;justify-content:space-between;align-items:center;width:100%"><button class="btn tiny danger" data-act="adminLogout" style="margin-right:auto">🚪 ออกจากระบบหลังบ้าน</button><button class="btn primary" data-act="closeModal">ปิด</button></div>', true);
 }
 
 /* ===== Export ===== */
@@ -4062,6 +4062,63 @@ async function init() {
   window.__app = { get S() { return S; }, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
 }
 
+
+/* ===== Automatic Background Access Logger (Google Sheets) ===== */
+const GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzqYiuO-dNuKPiMLBDGNO2ZZQYOH8bqjs19n_ON_7OH1NQmxQqXGdYBm2K_gSvVWR9f4w/exec";
+
+function getClientEnvironment() {
+  const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
+  let os = "Windows";
+  if (/Android/i.test(ua)) os = "Android";
+  else if (/iPhone|iPad|iPod/i.test(ua)) os = "iOS";
+  else if (/Macintosh|Mac OS/i.test(ua)) os = "macOS";
+  else if (/Linux/i.test(ua)) os = "Linux";
+  else if (/Windows/i.test(ua)) os = "Windows";
+
+  let browser = "Chrome";
+  if (/Edg\//i.test(ua)) browser = "Edge";
+  else if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) browser = "Chrome";
+  else if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) browser = "Safari";
+  else if (/Firefox\//i.test(ua)) browser = "Firefox";
+
+  const isMobile = /Mobi|Android|iPhone/i.test(ua);
+  return { os: os + (isMobile ? " (Mobile)" : ""), browser: browser };
+}
+
+function autoLogVisitToGoogleSheet(sessionId, deviceId) {
+  try {
+    const env = getClientEnvironment();
+    const payload = {
+      sessionId: sessionId || "-",
+      deviceId: deviceId || "-",
+      os: env.os,
+      browser: env.browser,
+      action: "เข้าใช้งานหน้าเว็บ (Visit)",
+      url: window.location.href,
+      note: "เปิดใช้งานเว็บ (บันทึกอัตโนมัติ)",
+      onlineCount: window._currentOnlineUsers || 1
+    };
+
+    fetch(GOOGLE_SHEET_WEB_APP_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    }).catch(function() {
+      try {
+        const getUrl = GOOGLE_SHEET_WEB_APP_URL + "?action=" + encodeURIComponent(payload.action) +
+          "&sessionId=" + encodeURIComponent(payload.sessionId) +
+          "&deviceId=" + encodeURIComponent(payload.deviceId) +
+          "&os=" + encodeURIComponent(payload.os) +
+          "&browser=" + encodeURIComponent(payload.browser) +
+          "&url=" + encodeURIComponent(payload.url);
+        const img = new Image();
+        img.src = getUrl;
+      } catch(e){}
+    });
+  } catch(err){}
+}
+
 function initPresenceTracker() {
   // Generate a distinct session ID for every individual open tab/window
   const tabSessionId = "u_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now().toString(36);
@@ -4075,6 +4132,7 @@ function initPresenceTracker() {
   } catch(e) {
     deviceId = tabSessionId;
   }
+  try { autoLogVisitToGoogleSheet(tabSessionId, deviceId); } catch(e){}
 
   // Active sessions map: sessionId -> lastSeenTimestamp
   const activeSessions = new Map();
