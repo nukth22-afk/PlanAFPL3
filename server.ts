@@ -287,9 +287,19 @@ interface ActiveSession {
 }
 
 const activeSessions = new Map<string, ActiveSession>();
+const SESSION_TTL_MS = 30000; // 30 seconds sliding window
 
 function getActiveUserCount(): number {
-  return Math.max(1, activeSessions.size);
+  const now = Date.now();
+  let count = 0;
+  for (const [id, session] of activeSessions.entries()) {
+    if (now - session.lastSeen <= SESSION_TTL_MS) {
+      count++;
+    } else {
+      activeSessions.delete(id);
+    }
+  }
+  return Math.max(1, count);
 }
 
 function broadcastPresence() {
@@ -300,18 +310,18 @@ function broadcastPresence() {
       try {
         session.res.write(payload);
       } catch {
-        activeSessions.delete(id);
+        session.res = undefined;
       }
     }
   }
 }
 
-// Prune inactive sessions every 10 seconds
+// Prune inactive sessions every 5 seconds
 setInterval(() => {
   const now = Date.now();
   let changed = false;
   for (const [id, session] of activeSessions.entries()) {
-    if (now - session.lastSeen > 35000) {
+    if (now - session.lastSeen > SESSION_TTL_MS) {
       activeSessions.delete(id);
       changed = true;
     }
@@ -319,7 +329,7 @@ setInterval(() => {
   if (changed) {
     broadcastPresence();
   }
-}, 10000);
+}, 5000);
 
 // SSE stream for real-time presence updates
 app.get('/api/presence/stream', (req: Request, res: Response) => {
@@ -331,20 +341,28 @@ app.get('/api/presence/stream', (req: Request, res: Response) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
-  activeSessions.set(sessionId, { lastSeen: Date.now(), res });
-  broadcastPresence();
+  const existing = activeSessions.get(sessionId);
+  if (existing) {
+    existing.lastSeen = Date.now();
+    existing.res = res;
+  } else {
+    activeSessions.set(sessionId, { lastSeen: Date.now(), res });
+    broadcastPresence();
+  }
 
   // Keep connection alive with periodic comments
   const keepAliveInterval = setInterval(() => {
     if (!res.writableEnded) {
       res.write(': keepalive\n\n');
     }
-  }, 20000);
+  }, 15000);
 
   req.on('close', () => {
     clearInterval(keepAliveInterval);
-    activeSessions.delete(sessionId);
-    broadcastPresence();
+    const s = activeSessions.get(sessionId);
+    if (s && s.res === res) {
+      s.res = undefined;
+    }
   });
 });
 
@@ -361,6 +379,24 @@ app.post('/api/presence/heartbeat', (req: Request, res: Response) => {
     }
   }
   res.json({ count: getActiveUserCount() });
+});
+
+// Leave beacon endpoint (when tab/browser closes)
+app.post('/api/presence/leave', (req: Request, res: Response) => {
+  let sessionId = '';
+  if (req.body && typeof req.body === 'object') {
+    sessionId = String(req.body.sessionId || '').trim();
+  } else if (typeof req.body === 'string') {
+    try {
+      const parsed = JSON.parse(req.body);
+      sessionId = String(parsed.sessionId || '').trim();
+    } catch {}
+  }
+  if (sessionId && activeSessions.has(sessionId)) {
+    activeSessions.delete(sessionId);
+    broadcastPresence();
+  }
+  res.json({ ok: true, count: getActiveUserCount() });
 });
 
 // Presence count query endpoint

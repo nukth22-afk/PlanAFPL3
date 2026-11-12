@@ -3943,13 +3943,16 @@ async function init() {
 }
 
 function initPresenceTracker() {
-  let sessionId = '';
+  let clientId = '';
   try {
-    sessionId = sessionStorage.getItem('applet_session_id') || '';
+    clientId = localStorage.getItem('applet_device_id') || sessionStorage.getItem('applet_device_id') || '';
   } catch(e){}
-  if (!sessionId) {
-    sessionId = 'usr_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now();
-    try { sessionStorage.setItem('applet_session_id', sessionId); } catch(e){}
+  if (!clientId) {
+    clientId = 'dev_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now().toString(36);
+    try {
+      localStorage.setItem('applet_device_id', clientId);
+      sessionStorage.setItem('applet_device_id', clientId);
+    } catch(e){}
   }
 
   function setOnlineBadge(n) {
@@ -3961,9 +3964,24 @@ function initPresenceTracker() {
     if (badge) badge.title = 'มีผู้ใช้งานออนไลน์อยู่ในระบบขณะนี้ ' + num + ' คน';
   }
 
+  function ping() {
+    fetch('/api/presence/heartbeat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: clientId })
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d && typeof d.count === 'number') {
+        setOnlineBadge(d.count);
+      }
+    })
+    .catch(() => {});
+  }
+
   function connectSSE() {
     try {
-      const es = new EventSource('/api/presence/stream?sessionId=' + encodeURIComponent(sessionId));
+      const es = new EventSource('/api/presence/stream?sessionId=' + encodeURIComponent(clientId));
       es.onmessage = e => {
         try {
           const d = JSON.parse(e.data);
@@ -3974,29 +3992,35 @@ function initPresenceTracker() {
       };
       es.onerror = () => {
         try { es.close(); } catch(err){}
-        setTimeout(connectSSE, 6000);
+        setTimeout(connectSSE, 4000);
       };
     } catch(err) {
-      setTimeout(connectSSE, 6000);
+      setTimeout(connectSSE, 4000);
     }
   }
 
-  function ping() {
-    fetch('/api/presence/heartbeat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId })
-    })
-    .then(r => r.json())
-    .then(d => {
-      if (d && typeof d.count === 'number') setOnlineBadge(d.count);
-    })
-    .catch(() => {});
-  }
-
-  connectSSE();
-  setInterval(ping, 15000);
+  // Initial ping & SSE connection
   ping();
+  connectSSE();
+
+  // Fast reliable heartbeat every 4 seconds
+  setInterval(ping, 4000);
+
+  // Send leave beacon on tab/browser close
+  window.addEventListener('beforeunload', () => {
+    try {
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon('/api/presence/leave', JSON.stringify({ sessionId: clientId }));
+      }
+    } catch(e){}
+  });
+
+  // Re-sync immediately when tab gains focus
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      ping();
+    }
+  });
 }
 
 init();
