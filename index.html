@@ -1501,7 +1501,7 @@ async function idbSet(k, v) { const db = await idbOpen(); return new Promise((re
 async function loadState() {
   try {
     const raw = await idbGet('state');
-    if (raw) { S = Object.assign(freshState(), JSON.parse(raw)); S.routes = S.routes || {}; S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings); if (S.settings.maxStart === 15) S.settings.maxStart = 10; if (S.settings.maxHop === 10) S.settings.maxHop = 12; ['fixedline', 'fixed line'].forEach(k => { if (!(S.settings.bigKw || []).includes(k)) S.settings.bigKw = (S.settings.bigKw || []).concat(k); }); if (S.settings.crossPenalty === 40) S.settings.crossPenalty = 150; if (!(S.settings.bigTitles || []).includes('3BB GIGATV BOX - Unable to use - ปัญหา GIGATV BOX WI-FI หรือ สาย LAN ขึ้นสถานะไม่เชื่อมต่อ')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('3BB GIGATV BOX - Unable to use - ปัญหา GIGATV BOX WI-FI หรือ สาย LAN ขึ้นสถานะไม่เชื่อมต่อ'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support Activity Fault MEA')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support Activity Fault MEA'); if (!(S.settings.bigTitles || []).includes('3BB GIGATV BOX - อุปกรณ์ชำรุด สูญหาย')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('3BB GIGATV BOX - อุปกรณ์ชำรุด สูญหาย'); if (!(S.settings.excludePkgs || []).includes('Corp FBB_SME Office FibreLan1Gbps 5Room_WiFi7 BROADBAND1000/1000Mbps FixedLine1000THB 1799B_5Router')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('Corp FBB_SME Office FibreLan1Gbps 5Room_WiFi7 BROADBAND1000/1000Mbps FixedLine1000THB 1799B_5Router'); if (!(S.settings.bigTitles || []).includes('FTTH - L2 - (Request) ตรวจสอบการตั้งค่ากล้อง CCTV แบบไม่ Forward Port ผ่านสาย LAN')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L2 - (Request) ตรวจสอบการตั้งค่ากล้อง CCTV แบบไม่ Forward Port ผ่านสาย LAN'); if (!(S.settings.excludePkgs || []).includes('BYOD BROADBAND Package 1000/500 Mbps 599 THB for 12 months')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('BYOD BROADBAND Package 1000/500 Mbps 599 THB for 12 months'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support เก็บสายหย่อน')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support เก็บสายหย่อน'); if (!(S.settings.excludePkgs || []).includes('Super FAST Package 1000/1000 Mbps 799THB 24 Months')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('Super FAST Package 1000/1000 Mbps 799THB 24 Months'); if (!S.settings.hlWords) S.settings.hlWords = ['AISPM_MA']; if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support Stream')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support Stream'); if (!(S.settings.bigTitles || []).includes('FTTH - L1 - (Request) (Account Test AWN) นิติฯ โครงการขอย้ายจุดติดตั้ง')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L1 - (Request) (Account Test AWN) นิติฯ โครงการขอย้ายจุดติดตั้ง'); if (!(S.settings.bigTitles || []).includes('FTTH - (Customer Request) Home FibreLan 1Gbps ย้ายจุดใช้งาน / ย้ายอุปกรณ์ภายในบ้านเลขที่เดิม (เก็บเงินหน้างาน)')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (Customer Request) Home FibreLan 1Gbps ย้ายจุดใช้งาน / ย้ายอุปกรณ์ภายในบ้านเลขที่เดิม (เก็บเงินหน้างาน)'); if (!(S.settings.excludePkgs || []).includes('SUPER FAST PLUS7 Package 1000/1000 Mbps 999THB 24 Months with AIS PLAYBOX')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('SUPER FAST PLUS7 Package 1000/1000 Mbps 999THB 24 Months with AIS PLAYBOX'); if (!(S.settings.bigTitles || []).includes('3BB GIGATV BOX - Unstable - ดู Live TV ไม่คมชัด /สะดุด')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('3BB GIGATV BOX - Unstable - ดู Live TV ไม่คมชัด /สะดุด'); if (!(S.settings.bigTitles || []).includes('FTTR - L1 - (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - L1 - (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low'); if (!(S.settings.bigTitles || []).includes('FTTH - L1 - (Customer Request) ขอ Sub เข้าดำเนินการเดินสายร้อยท่อ/เดินรางครอบสาย/เข้าหัว LAN (เก็บเงินหน้างาน)')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L1 - (Customer Request) ขอ Sub เข้าดำเนินการเดินสายร้อยท่อ/เดินรางครอบสาย/เข้าหัว LAN (เก็บเงินหน้างาน)'); if (!(S.settings.bigTitles || []).includes('FTTH – L1 - (Empowerment) ส่งช่างเข้าเดินสาย LAN')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH – L1 - (Empowerment) ส่งช่างเข้าเดินสาย LAN'); if (!(S.settings.excludePkgs || []).includes('BYOD BROADBAND Package 2000/1000Mbps 1299THB 24Months')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('BYOD BROADBAND Package 2000/1000Mbps 1299THB 24Months'); if (!(S.settings.bigTitles || []).includes('FTTR - L1 - (Request) สายหย่อน/ไม่เป็นระเบียบ [ระบุ AIS Fibre ID ได้]')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - L1 - (Request) สายหย่อน/ไม่เป็นระเบียบ [ระบุ AIS Fibre ID ได้]'); if (!(S.settings.excludePkgs || []).includes('3BB Home FibreLan PLUS III 2 room 1000/1000 Mbps 899 THB 24 Months (CUR)')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('3BB Home FibreLan PLUS III 2 room 1000/1000 Mbps 899 THB 24 Months (CUR)'); if (!(S.settings.excludePkgs || []).includes('Home FibreLan PLUS III 3 room')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('Home FibreLan PLUS III 3 room'); if (!(S.settings.bigTitles || []).includes('FTTH - (Cloud IP Camera) - L3 - Application ดูกล้องแบบ Live View ไม่ได้')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (Cloud IP Camera) - L3 - Application ดูกล้องแบบ Live View ไม่ได้'); if (!(S.settings.bigTitles || []).includes('FTTR - Customer Request - ส่งช่างเข้าตรวจสอบ Mesh Home FibreLAN')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - Customer Request - ส่งช่างเข้าตรวจสอบ Mesh Home FibreLAN'); if (!(S.settings.bigTitles || []).includes('FTTH - L1 - (Welve) (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L1 - (Welve) (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low'); if (!(S.settings.bigTitles || []).includes('FTTR - L1 - (Customer Request) ขอ Sub เข้าเดินสาย LAN เพิ่ม (เก็บเงินหน้างาน)')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - L1 - (Customer Request) ขอ Sub เข้าเดินสาย LAN เพิ่ม (เก็บเงินหน้างาน)'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support ย้ายแนวสาย')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support ย้ายแนวสาย'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support Heat Map')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support Heat Map'); if (!S.crossAll) { S.techs.forEach(t => { t.noCross = true; }); S.crossAll = true; } memStore.ok = true; return; }
+    if (raw) { S = Object.assign(freshState(), JSON.parse(raw)); S.routes = S.routes || {}; S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings); if (!S.settings._userEditedFilters) { if (S.settings.maxStart === 15) S.settings.maxStart = 10; if (S.settings.maxHop === 10) S.settings.maxHop = 12; ['fixedline', 'fixed line'].forEach(k => { if (!(S.settings.bigKw || []).includes(k)) S.settings.bigKw = (S.settings.bigKw || []).concat(k); }); if (S.settings.crossPenalty === 40) S.settings.crossPenalty = 150; if (!(S.settings.bigTitles || []).includes('3BB GIGATV BOX - Unable to use - ปัญหา GIGATV BOX WI-FI หรือ สาย LAN ขึ้นสถานะไม่เชื่อมต่อ')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('3BB GIGATV BOX - Unable to use - ปัญหา GIGATV BOX WI-FI หรือ สาย LAN ขึ้นสถานะไม่เชื่อมต่อ'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support Activity Fault MEA')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support Activity Fault MEA'); if (!(S.settings.bigTitles || []).includes('3BB GIGATV BOX - อุปกรณ์ชำรุด สูญหาย')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('3BB GIGATV BOX - อุปกรณ์ชำรุด สูญหาย'); if (!(S.settings.excludePkgs || []).includes('Corp FBB_SME Office FibreLan1Gbps 5Room_WiFi7 BROADBAND1000/1000Mbps FixedLine1000THB 1799B_5Router')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('Corp FBB_SME Office FibreLan1Gbps 5Room_WiFi7 BROADBAND1000/1000Mbps FixedLine1000THB 1799B_5Router'); if (!(S.settings.bigTitles || []).includes('FTTH - L2 - (Request) ตรวจสอบการตั้งค่ากล้อง CCTV แบบไม่ Forward Port ผ่านสาย LAN')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L2 - (Request) ตรวจสอบการตั้งค่ากล้อง CCTV แบบไม่ Forward Port ผ่านสาย LAN'); if (!(S.settings.excludePkgs || []).includes('BYOD BROADBAND Package 1000/500 Mbps 599 THB for 12 months')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('BYOD BROADBAND Package 1000/500 Mbps 599 THB for 12 months'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support เก็บสายหย่อน')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support เก็บสายหย่อน'); if (!(S.settings.excludePkgs || []).includes('Super FAST Package 1000/1000 Mbps 799THB 24 Months')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('Super FAST Package 1000/1000 Mbps 799THB 24 Months'); if (!S.settings.hlWords) S.settings.hlWords = ['AISPM_MA']; if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support Stream')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support Stream'); if (!(S.settings.bigTitles || []).includes('FTTH - L1 - (Request) (Account Test AWN) นิติฯ โครงการขอย้ายจุดติดตั้ง')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L1 - (Request) (Account Test AWN) นิติฯ โครงการขอย้ายจุดติดตั้ง'); if (!(S.settings.bigTitles || []).includes('FTTH - (Customer Request) Home FibreLan 1Gbps ย้ายจุดใช้งาน / ย้ายอุปกรณ์ภายในบ้านเลขที่เดิม (เก็บเงินหน้างาน)')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (Customer Request) Home FibreLan 1Gbps ย้ายจุดใช้งาน / ย้ายอุปกรณ์ภายในบ้านเลขที่เดิม (เก็บเงินหน้างาน)'); if (!(S.settings.excludePkgs || []).includes('SUPER FAST PLUS7 Package 1000/1000 Mbps 999THB 24 Months with AIS PLAYBOX')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('SUPER FAST PLUS7 Package 1000/1000 Mbps 999THB 24 Months with AIS PLAYBOX'); if (!(S.settings.bigTitles || []).includes('3BB GIGATV BOX - Unstable - ดู Live TV ไม่คมชัด /สะดุด')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('3BB GIGATV BOX - Unstable - ดู Live TV ไม่คมชัด /สะดุด'); if (!(S.settings.bigTitles || []).includes('FTTR - L1 - (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - L1 - (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low'); if (!(S.settings.bigTitles || []).includes('FTTH - L1 - (Customer Request) ขอ Sub เข้าดำเนินการเดินสายร้อยท่อ/เดินรางครอบสาย/เข้าหัว LAN (เก็บเงินหน้างาน)')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L1 - (Customer Request) ขอ Sub เข้าดำเนินการเดินสายร้อยท่อ/เดินรางครอบสาย/เข้าหัว LAN (เก็บเงินหน้างาน)'); if (!(S.settings.bigTitles || []).includes('FTTH – L1 - (Empowerment) ส่งช่างเข้าเดินสาย LAN')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH – L1 - (Empowerment) ส่งช่างเข้าเดินสาย LAN'); if (!(S.settings.excludePkgs || []).includes('BYOD BROADBAND Package 2000/1000Mbps 1299THB 24Months')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('BYOD BROADBAND Package 2000/1000Mbps 1299THB 24Months'); if (!(S.settings.bigTitles || []).includes('FTTR - L1 - (Request) สายหย่อน/ไม่เป็นระเบียบ [ระบุ AIS Fibre ID ได้]')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - L1 - (Request) สายหย่อน/ไม่เป็นระเบียบ [ระบุ AIS Fibre ID ได้]'); if (!(S.settings.excludePkgs || []).includes('3BB Home FibreLan PLUS III 2 room 1000/1000 Mbps 899 THB 24 Months (CUR)')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('3BB Home FibreLan PLUS III 2 room 1000/1000 Mbps 899 THB 24 Months (CUR)'); if (!(S.settings.excludePkgs || []).includes('Home FibreLan PLUS III 3 room')) S.settings.excludePkgs = (S.settings.excludePkgs || []).concat('Home FibreLan PLUS III 3 room'); if (!(S.settings.bigTitles || []).includes('FTTH - (Cloud IP Camera) - L3 - Application ดูกล้องแบบ Live View ไม่ได้')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (Cloud IP Camera) - L3 - Application ดูกล้องแบบ Live View ไม่ได้'); if (!(S.settings.bigTitles || []).includes('FTTR - Customer Request - ส่งช่างเข้าตรวจสอบ Mesh Home FibreLAN')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - Customer Request - ส่งช่างเข้าตรวจสอบ Mesh Home FibreLAN'); if (!(S.settings.bigTitles || []).includes('FTTH - L1 - (Welve) (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - L1 - (Welve) (Unable to use) User Online แต่ใช้งานไม่ได้ ตรวจสอบพบค่า Power Low'); if (!(S.settings.bigTitles || []).includes('FTTR - L1 - (Customer Request) ขอ Sub เข้าเดินสาย LAN เพิ่ม (เก็บเงินหน้างาน)')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTR - L1 - (Customer Request) ขอ Sub เข้าเดินสาย LAN เพิ่ม (เก็บเงินหน้างาน)'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support ย้ายแนวสาย')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support ย้ายแนวสาย'); if (!(S.settings.bigTitles || []).includes('FTTH - (ใช้เฉพาะ OS Assigner) Support Heat Map')) S.settings.bigTitles = (S.settings.bigTitles || []).concat('FTTH - (ใช้เฉพาะ OS Assigner) Support Heat Map'); } if (!S.crossAll) { S.techs.forEach(t => { t.noCross = true; }); S.crossAll = true; } memStore.ok = true; return; }
     memStore.ok = true;
   } catch (e) { memStore.ok = false; memStore.warn = 'เบราว์เซอร์นี้ไม่อนุญาตให้บันทึกข้อมูลถาวร ข้อมูลจะหายเมื่อปิดหน้านี้ กรุณากด "สำรองข้อมูล" เป็นระยะ'; }
   S = S || freshState();
@@ -2906,7 +2906,7 @@ function viewSettings() {
   o += '<div><b>คงงาน PLAYBOX ไว้ในแพลน</b><p>แม้แพ็กเกจจะตรงกับรายการด้านล่าง แต่ถ้าเป็นงาน AIS PLAYBOX จะยังคงนำมาจัดลงตาราง</p></div>';
   o += '</label>';
   o += '<div style="margin-top:12px"><b style="font-size:13.5px;color:#1e1b4b">รายการชื่อแพ็กเกจที่คัดออก (' + (s.excludePkgs || []).length + ' รายการ):</b>';
-  o += '<textarea id="exPkgs" rows="6" style="width:100%;font-size:13px;margin-top:6px">' + h((s.excludePkgs || []).join('\n')) + '</textarea>';
+  o += '<textarea id="exPkgs" rows="6" style="width:100%;font-size:13px;margin-top:6px" data-chg="exPkgs">' + h((s.excludePkgs || []).join('\n')) + '</textarea>';
   o += '<div style="margin-top:8px"><button class="btn" data-act="saveExPkgs">บันทึกรายการแพ็กเกจ</button></div></div>';
   o += '</div>';
 
@@ -3783,7 +3783,7 @@ const ACT = {
     openModal('<h2>ล้างแพลนของ ' + h(tc.name) + '?</h2><div class="mbody"><p>จะนำงานทั้งหมดของช่างคนนี้ <b>' + n + ' ใบ</b> ออกจากแพลนวันที่ ' + fmtDateTH(d) + '</p><p class="muted">งานที่นำออกจะแสดงเป็น "⊘ นำออก" ในช่องเดิม กดนำกลับได้ และกดย้อนกลับได้ งานของช่างคนอื่นไม่ถูกแตะ</p></div><div class="mfoot"><button class="btn primary" data-act="clearTechDo" data-t="' + h(id) + '">ล้างแพลน ' + n + ' ใบ</button><button class="btn" data-act="closeModal">ยกเลิก</button></div>'); },
   clearTechDo: t => { const d = curDate(), id = t.dataset.t; closeModal(); const n = clearTech(d, id); render(); toast('ล้างแพลนแล้ว ' + n + ' ใบ (ย้อนกลับได้)', 'ok'); },
   techLock: t => { const d = curDate(), pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } const on = toggleTechLock(d, t.dataset.t); save(); render(); toast(on ? 'ล็อกงานของช่างคนนี้แล้ว จัดใหม่รอบหน้าจะไม่ย้ายและไม่เพิ่มงานให้' : 'ปลดล็อกแล้ว', 'ok'); },
-  dayoff: t => { const d = curDate(), id = t.dataset.t, cur = !!(S.dayOff[d] || {})[id]; const had = setDayOff(d, id, !cur); render(); toast(!cur ? 'ตั้งเป็นวันหยุดแล้ว' + (had ? ' นำงาน ' + had + ' ใบออกจากช่างและจัดใหม่ให้' : '') : 'ยกเลิกวันหยุดแล้ว และจัดแพลนใหม่', 'ok'); },
+  dayoff: t => { const d = curDate(), id = t.dataset.t, cur = !!(S.dayOff[d] || {})[id]; const had = setDayOff(d, id, !cur); render(); const tc = S.techs.find(x => x.id === id); scheduleSettingsSheetSync(!cur ? 'เพิ่มวันหยุดช่าง' : 'ลบวันหยุดช่าง', (tc ? tc.name : id) + ' วันที่ ' + d); toast(!cur ? 'ตั้งเป็นวันหยุดแล้ว' + (had ? ' นำงาน ' + had + ' ใบออกจากช่างและจัดใหม่ให้' : '') : 'ยกเลิกวันหยุดแล้ว และจัดแพลนใหม่', 'ok'); },
   cellPick: t => { const d = curDate(), a = analyze(d); const L = a.unassigned.concat(a.review); if (!L.length) { toast('ไม่มีงานค้างให้จัด ลากงานจากช่องอื่นมาวางได้'); return; } cpCtx = { tech: t.dataset.t, slot: +t.dataset.s, a, L }; openModal('<h2>เลือกงานลงช่องนี้ (' + h(a.techById[t.dataset.t].name) + ' · Slot ' + t.dataset.s + ')</h2><div class="mbody"><input id="cpq" type="search" placeholder="ค้นหาเขต / Access Number / ชื่องาน" style="width:100%" autofocus><p class="small muted">เรียงงานที่เวลานัดตรง Slot นี้ก่อน แล้วเรียงตามความใกล้ (ระยะเส้นตรงจากงานก่อน/หลังของช่าง หรือเขตเริ่มงาน)</p><div id="cpList">' + cellPickList('') + '</div></div>'); },
   cellPut: t => tryAssign(t.dataset.k, t.dataset.t, +t.dataset.s),
   unitPick: t => pickModal(t.dataset.k),
@@ -3803,7 +3803,7 @@ const ACT = {
   confirm: () => $('btnConfirm').click(),
   reopen: () => { const d = curDate(); reopenPlan(d); render(); },
   histFilter: t => { histFilter = t.dataset.u; render(); },
-  addTech: () => { pushUndoSimple(); S.techs.push({ id: 't' + Date.now().toString(36), name: 'ช่างใหม่', zone: '', active: true }); save(); render(); },
+  addTech: () => { pushUndoSimple(); S.techs.push({ id: 't' + Date.now().toString(36), name: 'ช่างใหม่', zone: '', active: true }); save(); render(); scheduleSettingsSheetSync('เพิ่มช่าง', 'เพิ่มช่างใหม่ลงในระบบ'); },
   delTech: t => {
     const id = t.dataset.t;
     const tc = S.techs.find(x => x.id === id);
@@ -3869,22 +3869,23 @@ const ACT = {
             closeModal();
             render();
             toast('ลบช่าง ' + tc.name + ' ออกจากระบบแล้ว', 'ok');
+            scheduleSettingsSheetSync('ลบช่าง', 'ลบช่าง: ' + tc.name);
           }
         },
         { label: 'ยกเลิก', fn: closeModal }
       ]
     );
   },
-  addRange: () => { const id = $('rngTech').value, f = $('rngFrom').value, t = $('rngTo').value || f; if (!f) { toast('เลือกวันที่เริ่มต้น', 'err'); return; } if (t < f) { toast('วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น', 'err'); return; } const dt = new Date(f + 'T00:00:00Z'); let n = 0; while (dt.toISOString().slice(0, 10) <= t && n < 366) { const ds = dt.toISOString().slice(0, 10); S.dayOff[ds] = S.dayOff[ds] || {}; S.dayOff[ds][id] = true; if (jobsOn(ds).length) replan(ds, 'วันหยุดช่างเปลี่ยน'); dt.setUTCDate(dt.getUTCDate() + 1); n++; } save(); render(); toast('เพิ่มวันหยุด ' + n + ' วัน', 'ok'); },
-  rmOff: t => { const d = t.dataset.d; delete S.dayOff[d][t.dataset.t]; if (jobsOn(d).length) replan(d, 'ยกเลิกวันหยุดช่าง'); save(); render(); },
-  addExProv: () => { const v = $('exProv').value.trim(); if (!PROVINCES.has(v)) { toast('เลือกชื่อจังหวัดจากรายการ', 'err'); return; } S.settings.excludeProvs = (S.settings.excludeProvs || []).concat(v).filter((x, i, a) => a.indexOf(x) === i); afterExcludeChange(); },
-  saveBigTitles: () => { S.settings.bigTitles = $('bigTitles').value.split('\n').map(x => x.trim()).filter(Boolean); afterExcludeChange(); },
-  saveExPkgs: () => { S.settings.excludePkgs = $('exPkgs').value.split('\n').map(x => x.trim()).filter(Boolean); afterExcludeChange(); },
-  addBigKw: () => { const v = $('bigKw').value.trim(); if (!v) return; S.settings.bigKw = (S.settings.bigKw || []).concat(v).filter((x, i, a) => a.indexOf(x) === i); afterExcludeChange(); },
-  rmBigKw: t => { S.settings.bigKw.splice(+t.dataset.i, 1); afterExcludeChange(); },
-  rmExProv: t => { S.settings.excludeProvs.splice(+t.dataset.i, 1); afterExcludeChange(); },
-  addAlias: () => { const a = $('alAlias').value.trim(), d = $('alDist').value.trim(); if (!a || !DISTRICTS[d]) { toast('กรอกคำในที่อยู่ และเลือกเขตจากรายการที่ระบบรู้จัก', 'err'); return; } S.aliases.push({ alias: a, district: d }); reparseAll(); save(); render(); toast('เพิ่มชื่อเรียกแล้ว และอ่านเขตของใบงานใหม่', 'ok'); },
-  rmAlias: t => { S.aliases.splice(+t.dataset.i, 1); reparseAll(); save(); render(); },
+  addRange: () => { const id = $('rngTech').value, f = $('rngFrom').value, t = $('rngTo').value || f; if (!f) { toast('เลือกวันที่เริ่มต้น', 'err'); return; } if (t < f) { toast('วันที่สิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น', 'err'); return; } const dt = new Date(f + 'T00:00:00Z'); let n = 0; while (dt.toISOString().slice(0, 10) <= t && n < 366) { const ds = dt.toISOString().slice(0, 10); S.dayOff[ds] = S.dayOff[ds] || {}; S.dayOff[ds][id] = true; if (jobsOn(ds).length) replan(ds, 'วันหยุดช่างเปลี่ยน'); dt.setUTCDate(dt.getUTCDate() + 1); n++; } save(); render(); const tcRng = S.techs.find(x => x.id === id); scheduleSettingsSheetSync('เพิ่มช่วงวันหยุดช่าง', (tcRng ? tcRng.name : id) + ' (' + f + ' ถึง ' + t + ', ' + n + ' วัน)'); toast('เพิ่มวันหยุด ' + n + ' วัน', 'ok'); },
+  rmOff: t => { const d = t.dataset.d, tid = t.dataset.t; if (S.dayOff[d]) { delete S.dayOff[d][tid]; if (!Object.keys(S.dayOff[d]).length) delete S.dayOff[d]; } if (jobsOn(d).length) replan(d, 'ยกเลิกวันหยุดช่าง'); save(); render(); const tcOff = S.techs.find(x => x.id === tid); scheduleSettingsSheetSync('ลบวันหยุดช่าง', (tcOff ? tcOff.name : tid) + ' วันที่ ' + d); },
+  addExProv: () => { const v = $('exProv').value.trim(); if (!PROVINCES.has(v)) { toast('เลือกชื่อจังหวัดจากรายการ', 'err'); return; } S.settings._userEditedFilters = true; S.settings.excludeProvs = (S.settings.excludeProvs || []).concat(v).filter((x, i, a) => a.indexOf(x) === i); afterExcludeChange('เพิ่มจังหวัดที่ตัดงาน', 'เพิ่มจังหวัด: ' + v, 'อัปเดตรายการจังหวัดที่ตัดทิ้งแล้ว'); },
+  saveBigTitles: () => { S.settings._userEditedFilters = true; S.settings.bigTitles = $('bigTitles').value.split('\n').map(x => x.trim()).filter(Boolean); afterExcludeChange('แก้ไข Title ทีมใหญ่', 'บันทึก ' + S.settings.bigTitles.length + ' รายการ', 'บันทึกรายการ Title ทีมใหญ่แล้ว'); },
+  saveExPkgs: () => { S.settings._userEditedFilters = true; S.settings.excludePkgs = $('exPkgs').value.split('\n').map(x => x.trim()).filter(Boolean); afterExcludeChange('แก้ไขแพ็กเกจที่คัดออก', 'บันทึก ' + S.settings.excludePkgs.length + ' รายการ', 'บันทึกรายการแพ็กเกจที่คัดออกแล้ว'); },
+  addBigKw: () => { const v = $('bigKw').value.trim(); if (!v) return; S.settings._userEditedFilters = true; S.settings.bigKw = (S.settings.bigKw || []).concat(v).filter((x, i, a) => a.indexOf(x) === i); afterExcludeChange('เพิ่มคำใน Title ทีมใหญ่', 'เพิ่มคำ: ' + v, 'เพิ่มคำใน Title ทีมใหญ่แล้ว'); },
+  rmBigKw: t => { S.settings._userEditedFilters = true; const rm = (S.settings.bigKw || []).splice(+t.dataset.i, 1)[0]; afterExcludeChange('ลบคำใน Title ทีมใหญ่', 'ลบคำ: ' + (rm || ''), 'ลบคำใน Title ทีมใหญ่แล้ว'); },
+  rmExProv: t => { S.settings._userEditedFilters = true; const rm = (S.settings.excludeProvs || []).splice(+t.dataset.i, 1)[0]; afterExcludeChange('นำกลับจังหวัด', 'นำกลับจังหวัด: ' + (rm || ''), 'อัปเดตรายการจังหวัดที่ตัดทิ้งแล้ว'); },
+  addAlias: () => { const a = $('alAlias').value.trim(), d = $('alDist').value.trim(); if (!a || !DISTRICTS[d]) { toast('กรอกคำในที่อยู่ และเลือกเขตจากรายการที่ระบบรู้จัก', 'err'); return; } S.aliases.push({ alias: a, district: d }); reparseAll(); save(); render(); scheduleSettingsSheetSync('เพิ่มชื่อเรียกเขต', a + ' → ' + d); toast('เพิ่มชื่อเรียกแล้ว และอ่านเขตของใบงานใหม่', 'ok'); },
+  rmAlias: t => { const rm = S.aliases.splice(+t.dataset.i, 1)[0]; reparseAll(); save(); render(); scheduleSettingsSheetSync('ลบชื่อเรียกเขต', 'ลบ: ' + (rm ? rm.alias + ' → ' + rm.district : '')); },
   exportMyMaps: () => exportMyMaps().catch(e => toast('ส่งออกไม่สำเร็จ: ' + e.message, 'err')),
   mapSetMode: t => { realMapMode = t.dataset.mode; render(); },
   mapSetLayer: t => {
@@ -3913,12 +3914,13 @@ const ACT = {
   mapFitBounds: () => { const d = curDate(); const a = d ? analyze(d) : null; if (a) fitRealMapBounds(a); },
   calcRealRoutes: () => { const d = curDate(); if (d) calculateRealRoutesForDate(d); },
   clearRouteCache: () => { S.routes = {}; save(); render(); toast('ล้างแคชเส้นทางที่บันทึกไว้แล้ว', 'ok'); },
+
   backup: () => saveFile('planner-backup-' + new Date().toISOString().slice(0, 10) + '.json', new Blob([JSON.stringify(S)], { type: 'application/json' })),
   restorePick: () => $('restoreIn').click(),
   resetAll: () => ask('ลบข้อมูลทั้งหมด?', '<p>ใบงาน แพลน ประวัติ วันหยุด และการตั้งค่าจะถูกลบจากเบราว์เซอร์นี้ ย้อนกลับไม่ได้ แนะนำให้สำรองข้อมูลก่อน</p>', [{ label: 'ลบทั้งหมด', cls: 'danger', fn: () => { S = freshState(); undoStack.length = 0; save(); closeModal(); render(); toast('ลบข้อมูลทั้งหมดแล้ว', 'ok'); } }, { label: 'ยกเลิก', fn: closeModal }]),
   doImport: () => { const P = pending; const sh = P.sheets[P.si]; const up = doImport({ file: P.file, sheet: sh.name, headers: P.headers, rows: P.rows, map: P.map, date: P.date, firstRowNo: P.hr + 2, mode: P.mode }); pending = null; closeModal(); tab = 'plan'; render(); toast((up.mode === 'planned' ? 'ล็อกงานตามชื่อช่าง ' + (up.planned ? up.planned.locked : 0) + ' ใบ · ' : '') + 'นำเข้า ' + up.jobs + ' ใบงาน (ใหม่ ' + up.new + ', เปลี่ยน ' + up.changed + ', ซ้ำ ' + up.dup + ') · กรองออก ' + (up.filtered || 0) + ' แถว · จัดลงตาราง ' + up.assigned + ' ใบ, จัดไม่ได้ ' + up.unassigned + ', รอตรวจสอบ ' + up.review, 'ok'); }
 };
-function afterExcludeChange() { Object.keys(S.plans).forEach(d => { if (S.plans[d] && S.plans[d].status !== 'cancelled') { Object.keys(S.plans[d].assign).forEach(k => { if (S.jobs[k] && isExcluded(S.jobs[k])) delete S.plans[d].assign[k]; }); if (jobsOn(d).length) replan(d, 'เปลี่ยนรายการจังหวัดที่ตัดทิ้ง'); } }); save(); render(); toast('อัปเดตรายการจังหวัดที่ตัดทิ้งแล้ว', 'ok'); }
+function afterExcludeChange(syncAction, syncDetail, toastMsg) { S.settings._userEditedFilters = true; Object.keys(S.plans).forEach(d => { if (S.plans[d] && S.plans[d].status !== 'cancelled') { Object.keys(S.plans[d].assign).forEach(k => { if (S.jobs[k] && isExcluded(S.jobs[k])) delete S.plans[d].assign[k]; }); if (jobsOn(d).length) replan(d, syncAction || 'เปลี่ยนเงื่อนไขคัดกรองงาน'); } }); save(); render(); scheduleSettingsSheetSync(syncAction || 'แก้ไขเงื่อนไขคัดกรองงาน', syncDetail || ''); toast(toastMsg || 'อัปเดตรายการตั้งค่าแล้ว', 'ok'); }
 function pushUndoSimple() { /* การแก้ Master Data ไม่อยู่ในประวัติย้อนกลับ */ }
 function reparseAll() {
   Object.values(S.jobs).forEach(j => {
@@ -3942,16 +3944,17 @@ document.addEventListener('click', e => { const t = e.target.closest('[data-act]
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('modal').hidden) closeModal(); if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('chip')) { e.preventDefault(); jobDetail(e.target.dataset.key); } });
 document.addEventListener('change', e => {
   const t = e.target; const c = t.dataset && t.dataset.chg; if (!c) return;
-  if (c === 'settingRealRoutes') { S.settings.useRealRoutes = t.checked; save(); render(); toast(t.checked ? 'เปิดใช้ระยะทางและเวลาจริงจาก Google Maps แล้ว' : 'เปลี่ยนเป็นใช้ระยะประมาณเส้นตรง', 'ok'); }
-  else if (c === 'tech') { const x = S.techs.find(v => v.id === t.dataset.t); x[t.dataset.f] = t.value.trim(); if (t.dataset.f === 'klongFrom' && x.klongFrom === '') x.klongFrom = 0; if ((t.dataset.f === 'homeLat' || t.dataset.f === 'homeLon') && /^\s*-?\d+(\.\d+)?\s*[, ]\s*-?\d+(\.\d+)?\s*$/.test(t.value)) { const m = t.value.trim().split(/\s*[, ]\s*/); x.homeLat = m[0]; x.homeLon = m[1]; } save(); if (t.dataset.f === 'zone' || t.dataset.f === 'homeLat' || t.dataset.f === 'homeLon' || t.dataset.f === 'klongFrom') { Object.keys(S.plans).forEach(d => { if (!isFrozen(S.plans[d]) && jobsOn(d).length) replan(d, 'แก้เขตเริ่มงานช่าง'); }); } render(); }
-  else if (c === 'techActive') { const x = S.techs.find(v => v.id === t.dataset.t); x.active = t.checked; Object.keys(S.plans).forEach(d => { if (jobsOn(d).length) replan(d, 'เปลี่ยนสถานะใช้งานช่าง'); }); save(); render(); }
-  else if (c === 'dayoff') { const had = setDayOff(curDate(), t.dataset.t, t.checked); render(); toast((t.checked ? 'ตั้งหยุดแล้ว' : 'ยกเลิกวันหยุดแล้ว') + (had && t.checked ? ' นำงาน ' + had + ' ใบออกและจัดใหม่' : ''), 'ok'); }
-  else if (c === 'bigTitles') { S.settings.bigTitles = t.value.split('\n').map(x => x.trim()).filter(Boolean); afterExcludeChange(); }
-  else if (c === 'techCross') { const x = S.techs.find(v => v.id === t.dataset.t); x.noCross = t.checked; Object.keys(S.plans).forEach(d => { if (S.plans[d] && !isFrozen(S.plans[d]) && jobsOn(d).length) replan(d, 'เปลี่ยนค่าไม่ข้ามแม่น้ำของช่าง'); }); save(); render(); toast('บันทึกแล้ว', 'ok'); }
-  else if (c === 'dblSlot') { const n = +t.dataset.s; const cur = new Set(S.settings.doubleSlots || []); if (t.checked) cur.add(n); else cur.delete(n); S.settings.doubleSlots = [...cur].sort(); const d = curDate(); if (d && S.plans[d] && !isFrozen(S.plans[d])) refreshStatus(d); save(); render(); }
+  if (c === 'settingRealRoutes') { S.settings._userEditedFilters = true; S.settings.useRealRoutes = t.checked; save(); render(); scheduleSettingsSheetSync('แก้ไขตั้งค่าเส้นทางจริง', 'useRealRoutes = ' + (t.checked ? 'เปิด' : 'ปิด')); toast(t.checked ? 'เปิดใช้ระยะทางและเวลาจริงจาก Google Maps แล้ว' : 'เปลี่ยนเป็นใช้ระยะประมาณเส้นตรง', 'ok'); }
+  else if (c === 'tech') { const x = S.techs.find(v => v.id === t.dataset.t); if (!x) return; S.crossAll = true; x[t.dataset.f] = t.value.trim(); if (t.dataset.f === 'klongFrom' && x.klongFrom === '') x.klongFrom = 0; if ((t.dataset.f === 'homeLat' || t.dataset.f === 'homeLon') && /^\s*-?\d+(\.\d+)?\s*[, ]\s*-?\d+(\.\d+)?\s*$/.test(t.value)) { const m = t.value.trim().split(/\s*[, ]\s*/); x.homeLat = m[0]; x.homeLon = m[1]; } save(); if (t.dataset.f === 'zone' || t.dataset.f === 'homeLat' || t.dataset.f === 'homeLon' || t.dataset.f === 'klongFrom') { Object.keys(S.plans).forEach(d => { if (!isFrozen(S.plans[d]) && jobsOn(d).length) replan(d, 'แก้เขตเริ่มงานช่าง'); }); } render(); scheduleSettingsSheetSync('แก้ไขข้อมูลช่าง', (x.name || t.dataset.t) + ' (' + t.dataset.f + ')'); }
+  else if (c === 'techActive') { const x = S.techs.find(v => v.id === t.dataset.t); if (!x) return; S.crossAll = true; x.active = t.checked; Object.keys(S.plans).forEach(d => { if (!isFrozen(S.plans[d]) && jobsOn(d).length) replan(d, 'เปลี่ยนสถานะใช้งานช่าง'); }); save(); render(); scheduleSettingsSheetSync('แก้ไขสถานะช่าง', x.name + ' (ใช้งาน: ' + (t.checked ? 'เปิด' : 'ปิด') + ')'); }
+  else if (c === 'dayoff') { const had = setDayOff(curDate(), t.dataset.t, t.checked); render(); const tc = S.techs.find(v => v.id === t.dataset.t); scheduleSettingsSheetSync(t.checked ? 'เพิ่มวันหยุดช่าง' : 'ลบวันหยุดช่าง', (tc ? tc.name : t.dataset.t) + ' วันที่ ' + curDate()); toast((t.checked ? 'ตั้งหยุดแล้ว' : 'ยกเลิกวันหยุดแล้ว') + (had && t.checked ? ' นำงาน ' + had + ' ใบออกและจัดใหม่' : ''), 'ok'); }
+  else if (c === 'bigTitles') { S.settings._userEditedFilters = true; S.settings.bigTitles = t.value.split('\n').map(x => x.trim()).filter(Boolean); afterExcludeChange('แก้ไข Title ทีมใหญ่', 'แก้ไข ' + S.settings.bigTitles.length + ' รายการ', 'บันทึกรายการ Title ทีมใหญ่แล้ว'); }
+  else if (c === 'exPkgs') { S.settings._userEditedFilters = true; S.settings.excludePkgs = t.value.split('\n').map(x => x.trim()).filter(Boolean); afterExcludeChange('แก้ไขแพ็กเกจที่คัดออก', 'แก้ไข ' + S.settings.excludePkgs.length + ' รายการ', 'บันทึกรายการแพ็กเกจที่คัดออกแล้ว'); }
+  else if (c === 'techCross') { const x = S.techs.find(v => v.id === t.dataset.t); if (!x) return; S.crossAll = true; x.noCross = t.checked; Object.keys(S.plans).forEach(d => { if (S.plans[d] && !isFrozen(S.plans[d]) && jobsOn(d).length) replan(d, 'เปลี่ยนค่าไม่ข้ามแม่น้ำของช่าง'); }); save(); render(); scheduleSettingsSheetSync('แก้ไขไม่ข้ามเจ้าพระยา', x.name + ' = ' + (t.checked ? 'ไม่ข้าม' : 'ข้ามได้')); toast('บันทึกแล้ว', 'ok'); }
+  else if (c === 'dblSlot') { S.settings._userEditedFilters = true; const n = +t.dataset.s; const cur = new Set(S.settings.doubleSlots || []); if (t.checked) cur.add(n); else cur.delete(n); S.settings.doubleSlots = [...cur].sort(); const d = curDate(); if (d && S.plans[d] && !isFrozen(S.plans[d])) refreshStatus(d); save(); render(); scheduleSettingsSheetSync('แก้ไข Slot งานเบิ้ล', 'doubleSlots = ' + S.settings.doubleSlots.join(',')); }
   else if (c === 'startPick') { const d = curDate(); const pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อนจึงเปลี่ยนเขตงานแรกได้', 'err'); render(); return; } setStartPick(d, t.dataset.t, t.value); replan(d, 'ผู้ใช้เลือกเขตงานแรก'); save(); render(); toast(t.value ? 'จัดงานตามเขตงานแรก: ' + t.value + ' แล้ว' : 'กลับไปใช้เขตประจำของช่าง', 'ok'); }
-  else if (c === 'setting' && (t.dataset.f === 'excludeBig' || t.dataset.f === 'keepPlaybox')) { S.settings[t.dataset.f] = t.checked; afterExcludeChange(); }
-  else if (c === 'setting') { const v = parseFloat(t.value); if (!isFinite(v)) return; S.settings[t.dataset.f] = v; const d = curDate(); if (d && S.plans[d] && !isFrozen(S.plans[d]) && jobsOn(d).length) replan(d, 'เปลี่ยนค่าที่ใช้คำนวณ'); save(); render(); }
+  else if (c === 'setting' && (t.dataset.f === 'excludeBig' || t.dataset.f === 'keepPlaybox')) { S.settings._userEditedFilters = true; S.settings[t.dataset.f] = t.checked; afterExcludeChange('แก้ไขเงื่อนไขคัดกรอง', t.dataset.f + ' = ' + (t.checked ? 'เปิด' : 'ปิด'), 'อัปเดตเงื่อนไขคัดกรองงานแล้ว'); }
+  else if (c === 'setting') { const v = parseFloat(t.value); if (!isFinite(v)) return; S.settings._userEditedFilters = true; S.settings[t.dataset.f] = v; const d = curDate(); if (d && S.plans[d] && !isFrozen(S.plans[d]) && jobsOn(d).length) replan(d, 'เปลี่ยนค่าที่ใช้คำนวณ'); save(); render(); scheduleSettingsSheetSync('แก้ไขพารามิเตอร์', t.dataset.f + ' = ' + v); }
   else if (c === 'dover') { setDistrictOverride(S.jobs[t.dataset.k].date || curDate(), t.dataset.k, t.value); closeModal(); render(); toast('บันทึกเขตแล้ว และจัดแพลนใหม่', 'ok'); }
   else if (c === 'map') { pending.map[t.dataset.f] = t.value === '' ? undefined : +t.value; if (t.value === '') delete pending.map[t.dataset.f]; computePending(); showImport(); }
   else if (c === 'sheet') { pending.si = +t.value; setupPending(); showImport(); }
@@ -4022,7 +4025,7 @@ async function init() {
   $('fileIn').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; handleFile(f); });
   $('restoreIn').addEventListener('change', async e => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-    try { const o = JSON.parse(await f.text()); if (!o || !o.techs || !o.jobs || !o.plans) throw new Error('ไม่ใช่ไฟล์สำรองของโปรแกรมนี้'); ask('กู้คืนข้อมูลจากไฟล์สำรอง?', '<p>ข้อมูลปัจจุบันในเบราว์เซอร์จะถูกแทนที่ด้วยข้อมูลในไฟล์ ' + h(f.name) + ' (ใบงาน ' + Object.keys(o.jobs).length + ' รายการ)</p>', [{ label: 'กู้คืน', cls: 'primary', fn: () => { S = Object.assign(freshState(), o); undoStack.length = 0; save(); closeModal(); render(); toast('กู้คืนข้อมูลแล้ว', 'ok'); } }, { label: 'ยกเลิก', fn: closeModal }]); }
+    try { const o = JSON.parse(await f.text()); if (!o || !o.techs || !o.jobs || !o.plans) throw new Error('ไม่ใช่ไฟล์สำรองของโปรแกรมนี้'); ask('กู้คืนข้อมูลจากไฟล์สำรอง?', '<p>ข้อมูลปัจจุบันในเบราว์เซอร์จะถูกแทนที่ด้วยข้อมูลในไฟล์ ' + h(f.name) + ' (ใบงาน ' + Object.keys(o.jobs).length + ' รายการ)</p>', [{ label: 'กู้คืน', cls: 'primary', fn: () => { S = Object.assign(freshState(), o); S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings); S.settings._userEditedFilters = true; S.crossAll = true; undoStack.length = 0; save(); closeModal(); render(); scheduleSettingsSheetSync('กู้คืนจากไฟล์สำรอง', 'นำเข้าข้อมูลตั้งค่าจากไฟล์ ' + f.name); toast('กู้คืนข้อมูลแล้ว', 'ok'); } }, { label: 'ยกเลิก', fn: closeModal }]); }
     catch (err) { toast('กู้คืนไม่ได้: ' + err.message, 'err'); }
   });
   $('dateSel').addEventListener('change', e => selectDate(e.target.value));
@@ -4059,9 +4062,204 @@ async function init() {
   if (S.selectedDate && jobsOn(S.selectedDate).length && !S.plans[S.selectedDate]) replan(S.selectedDate, 'เปิดโปรแกรม');
   render();
   initPresenceTracker();
+  pullSettingsFromGoogleSheet({ silent: true, autoInitPush: true });
   window.__app = { get S() { return S; }, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
 }
 
+
+/* ===== Automatic Background Google Sheet Sync for Settings & Master Data (Add / Edit / Delete) ===== */
+const SETTINGS_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzSbsrT4sZ_MmA3rWyvNek_uAqsu0PWTJSz2nWX5wlTq7i88JgBX_90n6DvETS3n2TPbw/exec";
+
+function getSettingsSheetExecUrl() {
+  return SETTINGS_SHEET_WEB_APP_URL;
+}
+
+function buildSettingsSyncPayload(action, changeAction, changeDetail) {
+  return {
+    action: action || "syncAll",
+    changeAction: changeAction || "บันทึกการตั้งค่า",
+    changeDetail: changeDetail || "",
+    techs: S.techs || [],
+    dayOff: S.dayOff || {},
+    aliases: S.aliases || [],
+    settings: S.settings || {}
+  };
+}
+
+let settingsSyncTimer = null;
+let settingsSyncInFlight = false;
+let settingsSyncQueued = null;
+
+function scheduleSettingsSheetSync(changeAction, changeDetail) {
+  if (!SETTINGS_SHEET_WEB_APP_URL || !S) return;
+  clearTimeout(settingsSyncTimer);
+  settingsSyncQueued = {
+    action: changeAction || "แก้ไขการตั้งค่า",
+    detail: changeDetail || ""
+  };
+  settingsSyncTimer = setTimeout(() => {
+    settingsSyncTimer = null;
+    flushSettingsSyncQueue();
+  }, 50);
+}
+
+async function flushSettingsSyncQueue() {
+  if (!settingsSyncQueued) return;
+  if (settingsSyncInFlight) return;
+  const item = settingsSyncQueued;
+  settingsSyncQueued = null;
+  settingsSyncInFlight = true;
+  try {
+    await syncSettingsToGoogleSheet(item.action, item.detail);
+  } finally {
+    settingsSyncInFlight = false;
+    if (settingsSyncQueued) {
+      flushSettingsSyncQueue();
+    }
+  }
+}
+
+async function postToSettingsSheet(payload) {
+  const bodyStr = JSON.stringify(payload);
+  try {
+    const res = await fetch(SETTINGS_SHEET_WEB_APP_URL, {
+      method: "POST",
+      redirect: "follow",
+      keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: bodyStr
+    });
+    const txt = await res.text();
+    if (txt && txt.trim().startsWith("<")) {
+      throw new Error("Apps Script returned HTML");
+    }
+    if (txt) {
+      const parsed = JSON.parse(txt);
+      if (parsed && parsed.status === "error") throw new Error(parsed.message || "Apps Script error");
+      return parsed;
+    }
+    return { status: "success" };
+  } catch (err) {
+    await fetch(SETTINGS_SHEET_WEB_APP_URL, {
+      method: "POST",
+      mode: "no-cors",
+      keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: bodyStr
+    });
+    return { status: "success", opaque: true };
+  }
+}
+
+async function getFromSettingsSheet(actionName) {
+  const sep = SETTINGS_SHEET_WEB_APP_URL.includes("?") ? "&" : "?";
+  const res = await fetch(SETTINGS_SHEET_WEB_APP_URL + sep + "action=" + encodeURIComponent(actionName) + "&_t=" + Date.now(), {
+    method: "GET",
+    redirect: "follow"
+  });
+  const txt = await res.text();
+  if (!txt || txt.trim().startsWith("<")) {
+    throw new Error("Apps Script returned non-JSON response");
+  }
+  const data = JSON.parse(txt);
+  if (data && data.status === "error") throw new Error(data.message || "Apps Script error");
+  return data;
+}
+
+async function syncSettingsToGoogleSheet(changeAction, changeDetail) {
+  try {
+    const payload = buildSettingsSyncPayload("syncAll", changeAction, changeDetail);
+    await postToSettingsSheet(payload);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function applySettingsDataFromSheet(data) {
+  if (!data) return;
+  if (Array.isArray(data.techs) && data.techs.length > 0) {
+    S.techs = data.techs;
+  }
+  if (data.dayOff && typeof data.dayOff === "object") {
+    S.dayOff = data.dayOff;
+  }
+  if (Array.isArray(data.aliases)) {
+    S.aliases = data.aliases;
+  }
+  if (data.settings && typeof data.settings === "object") {
+    S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings, data.settings);
+    S.settings._userEditedFilters = true;
+  }
+  S.crossAll = true;
+
+  const validTechIds = new Set((S.techs || []).map(t => t.id));
+  Object.keys(S.plans || {}).forEach(d => {
+    const pl = S.plans[d];
+    if (!pl || isFrozen(pl)) return;
+    if (pl.assign) {
+      Object.keys(pl.assign).forEach(k => {
+        if (!validTechIds.has(pl.assign[k].tech)) delete pl.assign[k];
+      });
+    }
+    if (pl.lockedTech) {
+      Object.keys(pl.lockedTech).forEach(tid => {
+        if (!validTechIds.has(tid)) delete pl.lockedTech[tid];
+      });
+    }
+    if (pl.startPick) {
+      Object.keys(pl.startPick).forEach(tid => {
+        if (!validTechIds.has(tid)) delete pl.startPick[tid];
+      });
+    }
+  });
+
+  if (Object.keys(S.jobs || {}).length > 0) {
+    reparseAll();
+  }
+  save();
+}
+
+async function pullSettingsFromGoogleSheet(opts) {
+  opts = opts || {};
+  try {
+    const res = await getFromSettingsSheet("getAll");
+    if (res && res.initialized === false) {
+      if (opts.autoInitPush) {
+        return await syncSettingsToGoogleSheet("ซิงก์ข้อมูลตั้งค่าเริ่มต้นครั้งแรก", "อัปโหลดข้อมูลตั้งค่าเริ่มต้นเข้า Google Sheet อัตโนมัติ");
+      }
+      return false;
+    }
+    if (res && res.data) {
+      applySettingsDataFromSheet(res.data);
+      render();
+      return true;
+    }
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+function flushPendingSettingsSyncOnExit() {
+  if (!settingsSyncTimer && !settingsSyncQueued) return;
+  try {
+    clearTimeout(settingsSyncTimer);
+    settingsSyncTimer = null;
+    const item = settingsSyncQueued || { action: "แก้ไขการตั้งค่า", detail: "ซิงก์ก่อนปิดหน้าเว็บ" };
+    settingsSyncQueued = null;
+    const bodyStr = JSON.stringify(buildSettingsSyncPayload("syncAll", item.action, item.detail));
+    fetch(SETTINGS_SHEET_WEB_APP_URL, {
+      method: "POST",
+      mode: "no-cors",
+      keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: bodyStr
+    }).catch(() => {});
+  } catch (e) {}
+}
+window.addEventListener("beforeunload", flushPendingSettingsSyncOnExit);
+window.addEventListener("pagehide", flushPendingSettingsSyncOnExit);
 
 /* ===== Automatic Background Access Logger (Google Sheets) ===== */
 const GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzqYiuO-dNuKPiMLBDGNO2ZZQYOH8bqjs19n_ON_7OH1NQmxQqXGdYBm2K_gSvVWR9f4w/exec";
