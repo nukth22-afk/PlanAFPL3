@@ -344,7 +344,7 @@ tr.lockedrow td.zone, tr.lockedrow td.num { background: #f7fbf8 !important; }
 
 /* ===== Minimalist Modern Modals & Dialog Windows (ทุกหน้าต่าง) ===== */
 #modal {
-  position: fixed; inset: 0; z-index: 100;
+  position: fixed; inset: 0; z-index: 2000;
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   display: flex; align-items: flex-start; justify-content: center;
@@ -558,7 +558,7 @@ td.slot.over { outline: 3px dashed #6366f1; outline-offset: -4px; background: #e
 
 /* ===== Toast Notifications ===== */
 #toast {
-  position: fixed; left: 0; right: 0; bottom: 20px; z-index: 200;
+  position: fixed; left: 0; right: 0; bottom: 20px; z-index: 2100;
   display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
 }
 .toast {
@@ -644,7 +644,7 @@ td.slot.over { outline: 3px dashed #6366f1; outline-offset: -4px; background: #e
 
 /* Real Map styling */
 .real-map-wrapper {
-  position: relative; width: 100%; height: 600px; border-radius: 14px; overflow: hidden;
+  position: relative; z-index: 1; isolation: isolate; width: 100%; height: 600px; border-radius: 14px; overflow: hidden;
   border: 1px solid var(--line); box-shadow: var(--shadow); background: #f8fafc; margin-bottom: 16px;
 }
 .real-map-container { width: 100%; height: 100%; }
@@ -3668,13 +3668,16 @@ async function mountGoogleMaps(container, allPoints, routes, unassigned) {
     currentGMapMarkers.push(marker);
 
     marker.addListener('click', () => {
+      const sl = u.slot || natSlot(j);
+      const slotTxt = sl ? ('Slot ' + sl + ' (' + SLOTS[sl - 1].label + ')') : 'นอกช่วง Slot';
       const content = '<div style="font-family:sans-serif;min-width:210px;padding:4px">' +
         '<div style="color:#dc2626;font-weight:bold;margin-bottom:4px">⚠ ใบงานยังไม่ได้จัดลงตาราง</div>' +
         '<div style="font-size:13px;line-height:1.45;color:#333;margin-bottom:8px">' +
         '<div><b>Access Number:</b> ' + h(j.access) + '</div>' +
         '<div><b>Request No.:</b> ' + h(j.req || '-') + '</div>' +
-        '<div><b>เขต:</b> ' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</div>' +
+        '<div><b>ช่วงเวลา:</b> <span style="display:inline-block;padding:1px 7px;border-radius:99px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:700;font-size:12px">' + h(slotTxt) + '</span></div>' +
         '<div><b>เวลานัด:</b> ' + h(j.timeStr || j.planRaw || '-') + '</div>' +
+        '<div><b>เขต:</b> ' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</div>' +
         '<div style="font-size:12px;color:#666">' + h(j.address || '') + '</div>' +
         '</div>' +
         '<div style="border-top:1px solid #eee;padding-top:6px;text-align:right">' +
@@ -3786,11 +3789,15 @@ function mountLeafletMap(container, allPoints, routes, unassigned) {
       iconSize: [24, 24],
       iconAnchor: [12, 12]
     });
+    const sl = u.slot || natSlot(j);
+    const slotTxt = sl ? ('Slot ' + sl + ' (' + SLOTS[sl - 1].label + ')') : 'นอกช่วง Slot';
     const m = L.marker([u.coord.lat, u.coord.lon], { icon }).addTo(map);
-    m.bindPopup('<div style="font-family:sans-serif;min-width:200px">' +
+    m.bindPopup('<div style="font-family:sans-serif;min-width:210px">' +
       '<div style="color:#dc2626;font-weight:bold;margin-bottom:4px">⚠ ใบงานยังไม่ได้จัดลงตาราง</div>' +
       '<div style="font-size:13px;line-height:1.45;color:#333;margin-bottom:8px">' +
       '<div><b>Access:</b> ' + h(j.access) + '</div>' +
+      '<div><b>ช่วงเวลา:</b> <span style="display:inline-block;padding:1px 7px;border-radius:99px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;font-weight:700;font-size:12px">' + h(slotTxt) + '</span></div>' +
+      '<div><b>เวลานัด:</b> ' + h(j.timeStr || j.planRaw || '-') + '</div>' +
       '<div><b>เขต:</b> ' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</div>' +
       '<div style="font-size:12px;color:#666">' + h(j.address || '') + '</div>' +
       '</div>' +
