@@ -523,8 +523,8 @@ td.slot.over { outline: 3px dashed #6366f1; outline-offset: -4px; background: #e
 .chip .cl { display: inline-block; border-radius: 3px; cursor: pointer; }
 .chip .cl:hover { text-decoration: underline; }
 .chip .dist { flex-basis: 100%; font-size: 10.5px; opacity: 0.85; }
-.chip.new-upload { border: 2px solid #eab308 !important; box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.16); background: #fffbea !important; }
-.new-upload-tag { display: inline-block; margin-top: 4px; padding: 2px 7px; border: 1px solid #eab308; border-radius: 999px; background: #fef3c7; color: #854d0e; font-size: 10px; font-weight: 700; }
+.chip.new-upload { border: 2px solid #2563eb !important; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16); background: #eff6ff !important; }
+.new-upload-tag { display: inline-block; margin-top: 4px; padding: 2px 7px; border: 1px solid #3b82f6; border-radius: 999px; background: #dbeafe; color: #1d4ed8; font-size: 10px; font-weight: 700; }
 
 .addbtn {
   min-height: 56px; border: 1px dashed #cbd5e1; border-radius: 8px;
@@ -3877,7 +3877,11 @@ function jobDetail(key) {
   const rs = jobReasons(j);
   const hist = S.changes.filter(c => c.key === key);
   const names = Object.values(DISTRICTS);
+  const slotNum = e ? e.slot : (natSlot(j) || '-');
+  const cardSummarySingle = 's' + slotNum + '/' + (j.access || '') + '/' + (effDistrict(j) || 'รอตรวจสอบเขต') + '/' + (j.timeStr || '') + (isFTTB(j.title) ? ' FTTB' : '');
+  const cardSummaryBanner = e ? cellText(e) : cardSummarySingle;
   let o = '<h2>ใบงาน ' + h(j.req || '(ไม่มี Request No.)') + '</h2><div class="mbody"><dl class="kv">' +
+    '<dt>รายละเอียดการ์ดงาน</dt><dd><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><code style="padding:4px 8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;color:#1e3a8a;font-weight:700;user-select:all">' + h(cardSummarySingle) + '</code> <button type="button" class="btn small primary" data-act="copyJobText" data-copy="' + h(cardSummarySingle) + '">📋 คัดลอก</button></div></dd>' +
     '<dt>Access Number</dt><dd>' + h(j.access) + '</dd><dt>Request No.</dt><dd>' + h(j.req) + '</dd><dt>Title</dt><dd>' + h(j.title) + (isFTTB(j.title) ? ' ' + pill('info', 'FTTB') : '') + '</dd>' +
     '<dt>เวลานัด (ข้อมูลเดิม)</dt><dd>' + h(j.planRaw) + (j.timeErr ? ' ' + pill('risk', j.timeErr, '✖') : '') + '</dd><dt>Slot ตามเวลานัด</dt><dd>' + (natSlot(j) ? 'Slot ' + natSlot(j) + ' (' + SLOTS[natSlot(j) - 1].label + ')' : '-') + '</dd>' +
     '<dt>Address</dt><dd>' + h(j.address) + '</dd><dt>เขตลูกค้า</dt><dd><b>' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</b> <small class="muted">' + h(j.dOver ? 'ผู้ใช้กำหนดเอง' : j.dHow || '') + '</small><br><select id="dOver" data-chg="dover" data-k="' + h(key) + '"><option value="">— ใช้ค่าที่อ่านได้จากที่อยู่ —</option>' + names.map(n => '<option value="' + h(n.name) + '"' + (j.dOver === n.name ? ' selected' : '') + '>' + h(n.name) + ' (' + h(n.prov) + ')</option>').join('') + '</select></dd>' +
@@ -3886,7 +3890,7 @@ function jobDetail(key) {
     '<dt>ไฟล์ / แถว</dt><dd>' + h(j.file) + ' / แถว ' + j.rowNo + '</dd></dl>';
   if (u && u.bundled) o += '<p>' + pill('info', 'Bundled Visit') + ' ใบงานที่จุดเดียวกัน (Slot เดียวกัน ห่างไม่เกิน 100 ม. หรือที่อยู่ตรงกัน) ระบบรวมเป็น 1 บ้าน:</p><ul class="log">' + u.jobs.map(x => '<li><b>' + h(x.access) + '</b> · Request ' + h(x.req) + ' · ' + h(x.timeStr || '') + (x.key === key ? ' <small class="muted">(ใบที่เปิดอยู่)</small>' : '') + (e ? ' <button class="btn tiny" data-act="unassignOne" data-k="' + h(x.key) + '" title="นำออกเฉพาะใบนี้ ใบอื่นของบ้านเดียวกันอยู่ในแพลนต่อ">นำเฉพาะใบนี้ออก</button>' : '') + '</li>').join('') + '</ul>';
   if (rs.length) o += '<div class="banner warn"><b>ต้องตรวจสอบ</b><ul>' + rs.map(r => '<li>' + h(r) + '</li>').join('') + '</ul></div>';
-  if (e) { o += '<div class="banner ' + (e.level === 'ok' ? 'ok' : e.level === 'warn' ? 'warn' : 'risk') + '"><b>' + LV_ICON[e.level] + ' จัดอยู่กับ ' + h(a.techById[e.tech].name) + ' · Slot ' + e.slot + '</b><br><code>' + h(cellText(e)).replace(/\n/g, '<br>') + '</code>' + (e.msgs.length ? '<ul>' + e.msgs.map(m => '<li>' + LV_ICON[m.lv] + ' ' + h(m.m) + '</li>').join('') + '</ul>' : '') + '</div>'; }
+  if (e) { o += '<div class="banner ' + (e.level === 'ok' ? 'ok' : e.level === 'warn' ? 'warn' : 'risk') + '"><b>' + LV_ICON[e.level] + ' จัดอยู่กับ ' + h(a.techById[e.tech].name) + ' · Slot ' + e.slot + '</b><br><code>' + h(cardSummaryBanner).replace(/\n/g, '<br>') + '</code>' + (e.msgs.length ? '<ul>' + e.msgs.map(m => '<li>' + LV_ICON[m.lv] + ' ' + h(m.m) + '</li>').join('') + '</ul>' : '') + '</div>'; }
   else if (u) o += '<div class="banner risk">ยังไม่ได้จัดลงตาราง' + (u.whyNot ? ': ' + h(u.whyNot) : '') + '</div>';
   if (hist.length) o += '<h3>ประวัติการเปลี่ยนแปลง</h3><ul class="log">' + hist.map(c => '<li><span class="muted">' + fmtTs(c.ts) + '</span> ' + h(c.type) + ' — ' + (c.fields || []).map(f => h(f.f) + ': ' + h(f.b) + ' → ' + h(f.a)).join('; ') + '</li>').join('') + '</ul>';
   const isLockedTech = e && isTechLocked(d, e.tech);
@@ -4273,6 +4277,40 @@ const ACT = {
   pickFile: () => $('fileIn').click(),
   gotoDate: t => selectDate(t.dataset.d),
   job: (t, e) => { e.preventDefault(); jobDetail(t.dataset.k); },
+  copyJobText: async (t, e) => {
+    e.preventDefault();
+    const txt = t.dataset.copy || '';
+    if (!txt) return;
+    let ok = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(txt);
+        ok = true;
+      }
+    } catch (err) {}
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = txt;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+      } catch (err2) {}
+    }
+    if (ok) {
+      const prevTxt = t.dataset.origLabel || t.textContent;
+      t.dataset.origLabel = prevTxt;
+      t.textContent = '✓ คัดลอกแล้ว';
+      setTimeout(() => { if (t.isConnected) t.textContent = prevTxt; }, 1800);
+      toast('คัดลอกแล้ว: ' + txt.replace(/\n/g, ' | '), 'ok');
+    } else {
+      toast('เบราว์เซอร์ไม่อนุญาตคัดลอกอัตโนมัติ กรุณากด Ctrl+C เพื่อคัดลอก', 'warn');
+    }
+  },
   clearTech: t => { const d = curDate(), id = t.dataset.t, pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } if (isTechLocked(d, id)) { toast('ช่างคนนี้ล็อกงานอยู่ ปลดล็อกก่อนจึงล้างแพลนได้', 'err'); return; } const tc = S.techs.find(x => x.id === id), n = Object.values((pl || {}).assign || {}).filter(v => v.tech === id).length; if (!n) { toast('ช่างคนนี้ยังไม่มีงานในแพลน', 'info'); return; }
     openModal('<h2>ล้างแพลนของ ' + h(tc.name) + '?</h2><div class="mbody"><p>จะนำงานทั้งหมดของช่างคนนี้ <b>' + n + ' ใบ</b> ออกจากแพลนวันที่ ' + fmtDateTH(d) + '</p><p class="muted">งานที่นำออกจะแสดงเป็น "⊘ นำออก" ในช่องเดิม กดนำกลับได้ และกดย้อนกลับได้ งานของช่างคนอื่นไม่ถูกแตะ</p></div><div class="mfoot"><button class="btn primary" data-act="clearTechDo" data-t="' + h(id) + '">ล้างแพลน ' + n + ' ใบ</button><button class="btn" data-act="closeModal">ยกเลิก</button></div>'); },
   clearTechDo: t => { const d = curDate(), id = t.dataset.t; closeModal(); const n = clearTech(d, id); render(); toast('ล้างแพลนแล้ว ' + n + ' ใบ (ย้อนกลับได้)', 'ok'); },
