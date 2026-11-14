@@ -1869,8 +1869,11 @@ function getRealRoadMetric(origin, dest) {
   return { km: direct, min: travelMin(direct), direct, real: false };
 }
 
-async function fetchRealRoadMatrix(pairs) {
-  if (!pairs || !pairs.length) return 0;
+async function fetchRealRoadMatrix(pairs, onProgress) {
+  if (!pairs || !pairs.length) {
+    if (onProgress) onProgress(0, 0);
+    return 0;
+  }
   S.routes = S.routes || {};
   const missing = [];
   const seen = new Set();
@@ -1882,129 +1885,151 @@ async function fetchRealRoadMatrix(pairs) {
     seen.add(k);
     const cached = getCachedRoute(p.origin, p.destination);
     if (cached && cached.roadKm != null && cached.source !== "fallback_estimate") return;
-    missing.push({ key: k, origin: p.origin, destination: p.destination });
+    const ok = Number(p.origin.lat).toFixed(5) + "," + Number(p.origin.lon).toFixed(5);
+    const dk = Number(p.destination.lat).toFixed(5) + "," + Number(p.destination.lon).toFixed(5);
+    missing.push({ key: k, ok, dk, origin: p.origin, destination: p.destination });
   });
-  if (!missing.length) return 0;
+  if (!missing.length) {
+    if (onProgress) onProgress(0, 0);
+    return 0;
+  }
 
+  // Group into M x N bipartite matrix batches (<= 20 origins, <= 35 destinations per OSRM Table call)
   const byOrigin = new Map();
-  const byDest = new Map();
   missing.forEach(m => {
-    const ok = Number(m.origin.lat).toFixed(5) + "," + Number(m.origin.lon).toFixed(5);
-    const dk = Number(m.destination.lat).toFixed(5) + "," + Number(m.destination.lon).toFixed(5);
-    if (!byOrigin.has(ok)) byOrigin.set(ok, []);
-    byOrigin.get(ok).push(m);
-    if (!byDest.has(dk)) byDest.set(dk, []);
-    byDest.get(dk).push(m);
+    if (!byOrigin.has(m.ok)) byOrigin.set(m.ok, { ok: m.ok, coord: m.origin, items: [] });
+    byOrigin.get(m.ok).items.push(m);
   });
 
-  const assigned = new Set();
   const batches = [];
-  const allGroups = [];
-  byOrigin.forEach(items => allGroups.push({ type: "origin", items }));
-  byDest.forEach(items => allGroups.push({ type: "dest", items }));
-  allGroups.sort((a, b) => b.items.length - a.items.length);
+  const MAX_O = 20;
+  const MAX_D = 35;
+  let curOrigins = [];
+  let curDests = new Map();
+  let curItems = [];
 
-  const CHUNK = 45;
-  allGroups.forEach(g => {
-    const rem = g.items.filter(m => !assigned.has(m.key));
-    if (!rem.length) return;
-    rem.forEach(m => assigned.add(m.key));
-    for (let i = 0; i < rem.length; i += CHUNK) {
-      batches.push({ type: g.type, items: rem.slice(i, i + CHUNK) });
+  const flushBatch = () => {
+    if (!curItems.length) return;
+    batches.push({
+      origins: curOrigins,
+      dests: Array.from(curDests.values()),
+      items: curItems
+    });
+    curOrigins = [];
+    curDests = new Map();
+    curItems = [];
+  };
+
+  const originGroups = Array.from(byOrigin.values()).sort((a, b) => b.items.length - a.items.length);
+  originGroups.forEach(g => {
+    if (g.items.length > MAX_D) {
+      for (let i = 0; i < g.items.length; i += MAX_D) {
+        const sub = g.items.slice(i, i + MAX_D);
+        const dm = new Map();
+        sub.forEach(m => { if (!dm.has(m.dk)) dm.set(m.dk, m.destination); });
+        batches.push({ origins: [{ ok: g.ok, coord: g.coord }], dests: Array.from(dm.values()), items: sub });
+      }
+      return;
     }
+    const needDestMap = new Map(curDests);
+    g.items.forEach(m => { if (!needDestMap.has(m.dk)) needDestMap.set(m.dk, m.destination); });
+    if (curOrigins.length && (curOrigins.length + 1 > MAX_O || needDestMap.size > MAX_D)) {
+      flushBatch();
+    }
+    curOrigins.push({ ok: g.ok, coord: g.coord });
+    g.items.forEach(m => { if (!curDests.has(m.dk)) curDests.set(m.dk, m.destination); });
+    curItems.push(...g.items);
   });
+  flushBatch();
 
   let updated = 0;
+  let donePairs = 0;
+  const totalPairs = missing.length;
+  if (onProgress) onProgress(0, totalPairs);
+
   const CONCURRENCY = 4;
   for (let i = 0; i < batches.length; i += CONCURRENCY) {
     const slice = batches.slice(i, i + CONCURRENCY);
     await Promise.all(slice.map(async batch => {
       const items = batch.items;
       if (!items.length) return;
+      const oIdxMap = new Map();
+      batch.origins.forEach((o, idx) => oIdxMap.set(o.ok, idx));
+      const dCoords = [];
+      const dIdxMap = new Map();
+      items.forEach(m => {
+        if (!dIdxMap.has(m.dk)) {
+          dIdxMap.set(m.dk, dCoords.length);
+          dCoords.push(m.destination);
+        }
+      });
+
+      const resolved = new Set();
       try {
-        if (batch.type === "origin") {
-          const anchor = items[0].origin;
-          const coords = [anchor.lon + "," + anchor.lat].concat(items.map(m => m.destination.lon + "," + m.destination.lat)).join(";");
-          const destIdx = items.map((_, idx) => idx + 1).join(";");
-          const url = "https://router.project-osrm.org/table/v1/driving/" + coords + "?sources=0&destinations=" + destIdx + "&annotations=distance,duration";
-          const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.code === "Ok" && data.distances && data.distances[0] && data.durations && data.durations[0]) {
-              items.forEach((m, idx) => {
-                const distM = data.distances[0][idx];
-                const durS = data.durations[0][idx];
-                if (typeof distM === "number" && isFinite(distM) && typeof durS === "number" && isFinite(durS)) {
-                  const prevCache = S.routes[m.key];
-                  S.routes[m.key] = {
-                    roadKm: distM / 1000,
-                    roadMin: durS / 60,
-                    distanceMeters: Math.round(distM),
-                    durationSeconds: Math.round(durS),
-                    polyline: (prevCache && prevCache.polyline) || "",
-                    source: (prevCache && prevCache.polyline) ? prevCache.source : "osrm_table",
-                    ts: Date.now()
-                  };
-                  updated++;
-                }
-              });
-              return;
-            }
-          }
-        } else {
-          const anchor = items[0].destination;
-          const coords = [anchor.lon + "," + anchor.lat].concat(items.map(m => m.origin.lon + "," + m.origin.lat)).join(";");
-          const srcIdx = items.map((_, idx) => idx + 1).join(";");
-          const url = "https://router.project-osrm.org/table/v1/driving/" + coords + "?sources=" + srcIdx + "&destinations=0&annotations=distance,duration";
-          const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.code === "Ok" && data.distances && data.durations) {
-              items.forEach((m, idx) => {
-                const distM = data.distances[idx] && data.distances[idx][0];
-                const durS = data.durations[idx] && data.durations[idx][0];
-                if (typeof distM === "number" && isFinite(distM) && typeof durS === "number" && isFinite(durS)) {
-                  const prevCache = S.routes[m.key];
-                  S.routes[m.key] = {
-                    roadKm: distM / 1000,
-                    roadMin: durS / 60,
-                    distanceMeters: Math.round(distM),
-                    durationSeconds: Math.round(durS),
-                    polyline: (prevCache && prevCache.polyline) || "",
-                    source: (prevCache && prevCache.polyline) ? prevCache.source : "osrm_table",
-                    ts: Date.now()
-                  };
-                  updated++;
-                }
-              });
-              return;
-            }
+        const allPts = batch.origins.map(o => o.coord).concat(dCoords);
+        const coordsStr = allPts.map(pt => pt.lon + "," + pt.lat).join(";");
+        const srcIdx = batch.origins.map((_, idx) => idx).join(";");
+        const dstIdx = dCoords.map((_, idx) => batch.origins.length + idx).join(";");
+        const url = "https://router.project-osrm.org/table/v1/driving/" + coordsStr + "?sources=" + srcIdx + "&destinations=" + dstIdx + "&annotations=distance,duration";
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.code === "Ok" && data.distances && data.durations) {
+            items.forEach(m => {
+              const oi = oIdxMap.get(m.ok);
+              const di = dIdxMap.get(m.dk);
+              const distM = data.distances[oi] && data.distances[oi][di];
+              const durS = data.durations[oi] && data.durations[oi][di];
+              if (typeof distM === "number" && isFinite(distM) && typeof durS === "number" && isFinite(durS)) {
+                const prevCache = S.routes[m.key];
+                S.routes[m.key] = {
+                  roadKm: distM / 1000,
+                  roadMin: durS / 60,
+                  distanceMeters: Math.round(distM),
+                  durationSeconds: Math.round(durS),
+                  polyline: (prevCache && prevCache.polyline) || "",
+                  source: (prevCache && prevCache.polyline) ? prevCache.source : "osrm_table",
+                  ts: Date.now()
+                };
+                resolved.add(m.key);
+                updated++;
+              }
+            });
           }
         }
       } catch (e) {}
 
-      await Promise.all(items.map(async m => {
-        try {
-          const url = "https://router.project-osrm.org/route/v1/driving/" + m.origin.lon + "," + m.origin.lat + ";" + m.destination.lon + "," + m.destination.lat + "?overview=full&geometries=polyline";
-          const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
-          if (r.ok) {
-            const d = await r.json();
-            if (d && d.code === "Ok" && d.routes && d.routes[0]) {
-              const rt = d.routes[0];
-              S.routes[m.key] = {
-                roadKm: rt.distance / 1000,
-                roadMin: rt.duration / 60,
-                distanceMeters: Math.round(rt.distance),
-                durationSeconds: Math.round(rt.duration),
-                polyline: rt.geometry || "",
-                source: "osrm",
-                ts: Date.now()
-              };
-              updated++;
-            }
-          }
-        } catch (err) {}
-      }));
+      const unresolved = items.filter(m => !resolved.has(m.key));
+      if (unresolved.length) {
+        const SUB_CHUNK = 4;
+        for (let k = 0; k < unresolved.length; k += SUB_CHUNK) {
+          await Promise.all(unresolved.slice(k, k + SUB_CHUNK).map(async m => {
+            try {
+              const url = "https://router.project-osrm.org/route/v1/driving/" + m.origin.lon + "," + m.origin.lat + ";" + m.destination.lon + "," + m.destination.lat + "?overview=full&geometries=polyline";
+              const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+              if (r.ok) {
+                const d = await r.json();
+                if (d && d.code === "Ok" && d.routes && d.routes[0]) {
+                  const rt = d.routes[0];
+                  S.routes[m.key] = {
+                    roadKm: rt.distance / 1000,
+                    roadMin: rt.duration / 60,
+                    distanceMeters: Math.round(rt.distance),
+                    durationSeconds: Math.round(rt.duration),
+                    polyline: rt.geometry || "",
+                    source: "osrm",
+                    ts: Date.now()
+                  };
+                  updated++;
+                }
+              }
+            } catch (err) {}
+          }));
+        }
+      }
+
+      donePairs += items.length;
+      if (onProgress) onProgress(donePairs, totalPairs);
     }));
   }
 
@@ -2012,12 +2037,162 @@ async function fetchRealRoadMatrix(pairs) {
   return updated;
 }
 
+function collectPrePlanRoutePairs(date) {
+  const jobsD = jobsOn(date);
+  if (!jobsD.length) return [];
+  const plan = S.plans[date] || null;
+  const avail = techAvail(date);
+  const units = buildUnits(jobsD);
+  const coordUnits = units.filter(u => u.coord && u.slot != null);
+  const startLim = Math.max(S.settings.maxStart || 10, S.settings.maxZone || 12, 18);
+  const hopLim = S.settings.maxHop || 12;
+  const dblLim = S.settings.doubleKm || 5;
+  const pairs = [];
+  const seen = new Set();
+  const addPair = (o, d) => {
+    if (!o || !d || o.lat == null || o.lon == null || d.lat == null || d.lon == null) return;
+    const k = routeKey(o, d);
+    if (!k || seen.has(k)) return;
+    const cached = getCachedRoute(o, d);
+    if (cached && cached.roadKm != null && cached.source !== "fallback_estimate") return;
+    seen.add(k);
+    pairs.push({ origin: o, destination: d });
+  };
+
+  if (plan && plan.assign) {
+    avail.forEach(t => {
+      const zRef = zoneRef(t);
+      const fixedList = [];
+      units.forEach(u => {
+        const a = unitAsg(plan, u);
+        if (a && a.tech === t.id) fixedList.push({ u, slot: a.slot });
+      });
+      fixedList.sort((a, b) => (a.u.start - b.u.start) || (a.slot - b.slot));
+      if (fixedList.length) {
+        if (zRef && fixedList[0].u.coord) addPair(zRef, fixedList[0].u.coord);
+        for (let i = 1; i < fixedList.length; i++) {
+          if (fixedList[i - 1].u.coord && fixedList[i].u.coord) {
+            addPair(fixedList[i - 1].u.coord, fixedList[i].u.coord);
+          }
+        }
+      }
+    });
+  }
+
+  avail.forEach(t => {
+    const zRef = zoneRef(t);
+    if (!zRef) return;
+    coordUnits.forEach(u => {
+      if (u.reasons.length) return;
+      if (haversine(zRef, u.coord) <= startLim) addPair(zRef, u.coord);
+    });
+    if (plan && plan.assign) {
+      const fixedList = units.filter(u => { const a = unitAsg(plan, u); return a && a.tech === t.id && u.coord; })
+        .sort((a, b) => (a.start - b.start));
+      if (fixedList.length && haversine(zRef, fixedList[0].coord) > (S.settings.maxStart || 10)) {
+        coordUnits.forEach(u => {
+          if (!u.reasons.length && haversine(fixedList[0].coord, u.coord) <= (S.settings.maxZone || 12)) {
+            addPair(fixedList[0].coord, u.coord);
+          }
+        });
+      }
+    }
+  });
+
+  for (let i = 0; i < coordUnits.length; i++) {
+    const A = coordUnits[i];
+    if (A.reasons.length) continue;
+    for (let j = 0; j < coordUnits.length; j++) {
+      if (i === j) continue;
+      const B = coordUnits[j];
+      if (B.reasons.length) continue;
+      if (A.slot < B.slot) {
+        if (haversine(A.coord, B.coord) <= hopLim) addPair(A.coord, B.coord);
+      } else if (A.slot === B.slot && A.start <= B.start) {
+        if (haversine(A.coord, B.coord) <= dblLim) addPair(A.coord, B.coord);
+      }
+    }
+  }
+  return pairs;
+}
+
+function collectAssignedRoutePairs(date) {
+  const jobsD = jobsOn(date);
+  if (!jobsD.length || !S.plans[date]) return [];
+  const a = analyze(date);
+  const pairs = [];
+  const seen = new Set();
+  const addPair = (o, d) => {
+    if (!o || !d || o.lat == null || o.lon == null || d.lat == null || d.lon == null) return;
+    const k = routeKey(o, d);
+    if (!k || seen.has(k)) return;
+    const cached = getCachedRoute(o, d);
+    if (cached && cached.roadKm != null && cached.source !== "fallback_estimate") return;
+    seen.add(k);
+    pairs.push({ origin: o, destination: d });
+  };
+  a.techs.forEach(t => {
+    const L = (a.perTech[t.id] && a.perTech[t.id].list) || [];
+    if (!L.length) return;
+    const zRef = zoneRef(t);
+    if (zRef && L[0].u.coord) addPair(zRef, L[0].u.coord);
+    for (let i = 1; i < L.length; i++) {
+      if (L[i - 1].u.coord && L[i].u.coord) addPair(L[i - 1].u.coord, L[i].u.coord);
+    }
+  });
+  return pairs;
+}
+
+async function prepareRealRoutesAndReplan(dates, why, onProgress) {
+  const list = (dates || []).filter(d => d && (jobsOn(d).length || S.plans[d]));
+  if (!list.length) return;
+  if (S.settings.useRealRoutes !== false) {
+    const prePairs = [];
+    const seen = new Set();
+    list.forEach(d => {
+      collectPrePlanRoutePairs(d).forEach(p => {
+        const k = routeKey(p.origin, p.destination);
+        if (k && !seen.has(k)) { seen.add(k); prePairs.push(p); }
+      });
+    });
+    if (prePairs.length) {
+      await fetchRealRoadMatrix(prePairs, onProgress);
+    }
+  }
+  list.forEach(d => { if (jobsOn(d).length || S.plans[d]) replan(d, why); });
+  if (S.settings.useRealRoutes !== false) {
+    const postPairs = [];
+    const seenPost = new Set();
+    list.forEach(d => {
+      collectAssignedRoutePairs(d).forEach(p => {
+        const k = routeKey(p.origin, p.destination);
+        if (k && !seenPost.has(k)) { seenPost.add(k); postPairs.push(p); }
+      });
+    });
+    if (postPairs.length) {
+      await fetchRealRoadMatrix(postPairs);
+      list.forEach(d => { if (S.plans[d] && !isFrozen(S.plans[d]) && S.plans[d].status !== 'cancelled') refreshStatus(d); });
+    }
+  }
+  save();
+}
+
 function homeRef(t) { if (t.picked) return null; const la = parseCoord(t.homeLat, 'lat'), lo = parseCoord(t.homeLon, 'lon'); return la.st === 'ok' && lo.st === 'ok' ? { lat: la.n, lon: lo.n } : null; }
 function zoneRef(t) { const hr = homeRef(t); if (hr) return hr; const z = DISTRICTS[t.zone]; return z ? { lat: z.lat, lon: z.lon } : null; }
-function zoneDist(t, u) {
+function zoneDistInfo(t, u) {
   const ref = zoneRef(t); if (!ref) return null;
   const p = u.coord || (u.district && DISTRICTS[u.district] ? DISTRICTS[u.district] : null); if (!p) return null;
-  return haversine(ref, p);
+  const hasHome = !!homeRef(t);
+  if (u.coord && S.settings.useRealRoutes !== false) {
+    const m = getRealRoadMetric(ref, u.coord);
+    if (m) return { km: m.km, min: m.min, direct: m.direct, real: m.real, hasHome, ref };
+  }
+  const d = haversine(ref, p);
+  return { km: d, min: travelMin(d), direct: d, real: false, hasHome, ref };
+}
+function zoneDist(t, u) {
+  const zi = zoneDistInfo(t, u);
+  return zi ? zi.km : null;
 }
 function zoneCost(t, u) {
   const d = zoneDist(t, u); if (d == null) return 12;
@@ -2051,7 +2226,7 @@ function techCost(t, items) { // items: [{u, slot, fixed}]
     if (A.slot === B.slot && !(A.double || B.double)) return Infinity;
     if (!(A.fixed && B.fixed)) {
       const p = pairInfo(A.u, B.u);
-      if (p.d != null) { if (p.ok === false || p.d > S.settings.maxHop) return Infinity; cost += p.d * 3 + 0.2 * p.d * p.d + Math.max(0, p.d - S.settings.prefHop) * 15; } else cost += 12;
+      if (p.d != null) { const hopKm = (p.real && p.roadKm != null) ? p.roadKm : p.d; if (p.ok === false || hopKm > S.settings.maxHop) return Infinity; cost += hopKm * 3 + 0.2 * hopKm * hopKm + Math.max(0, hopKm - S.settings.prefHop) * 15; } else cost += 12;
     }
   }
   for (let i = 2; i < L.length; i++) {
@@ -2234,8 +2409,8 @@ function analyze(date) {
     else if (nat !== e.slot) bump(e, 'risk', 'วางต่างจาก Slot ตามเวลานัด (นัด Slot ' + nat + ') ต้องแจ้งลูกค้าเปลี่ยนเวลา');
     u.reasons.forEach(r => bump(e, 'warn', r));
     if (!u.coord) bump(e, 'warn', 'ไม่มีพิกัดที่ใช้ได้ ไม่สามารถคำนวณระยะทางได้');
-    const t = techById[e.tech], zd = (e.slot === 1 || perTech[e.tech].list[0] === e) ? zoneDist(t, u) : null;
-    if (zd != null && zd > 15) bump(e, 'warn', 'งานแรกของวัน ห่างจากเขตเริ่มงาน "' + t.zone + '" ~' + zd.toFixed(0) + ' กม. (อ้างอิงศูนย์กลางเขต ไม่ใช่พิกัดช่าง)');
+    const t = techById[e.tech], zi = (e.slot === 1 || perTech[e.tech].list[0] === e) ? zoneDistInfo(t, u) : null;
+    if (zi != null && zi.km > 15) bump(e, 'warn', 'งานแรกของวัน ห่างจาก' + (zi.hasHome ? 'บ้านช่าง' : 'เขตเริ่มงาน "' + t.zone + '"') + (zi.real ? ' ถนน ' + zi.km.toFixed(1) + ' กม. (~' + Math.round(zi.min) + ' น.)' : ' ~' + zi.km.toFixed(0) + ' กม.'));
     if (perTech[e.tech].units > S.settings.maxHouses) bump(e, 'warn', 'ช่างคนนี้มี ' + perTech[e.tech].units + ' หลัง เกินเกณฑ์สูงสุด ' + S.settings.maxHouses + ' หลังต่อวัน (ใบงานหลายใบที่บ้านเดียวกันนับเป็น 1 หลัง)');
     if (klongBlocked(t, u)) bump(e, 'warn', 'งานอยู่คลอง ' + klongOf(u.jobs[0].address) + ' ซึ่งช่างคนนี้ตั้งไว้ว่าไม่รับตั้งแต่คลอง ' + klongLimit(t) + ' ขึ้นไป (ผู้ใช้จัดเอง/ล็อก)');
     if (crosses(t, u)) bump(e, 'warn', 'ข้ามแม่น้ำเจ้าพระยา (ช่างคนนี้ตั้งค่าไม่อยากข้ามฝั่ง) ใช้เมื่อไม่มีทางเลือกอื่นเท่านั้น');
@@ -2516,7 +2691,7 @@ function applyPlanned(up, seen, ts) {
   rep.dates.forEach(d => logPlan(d, 'นำเข้าไฟล์แพลนเดิม ' + up.file + ': ล็อกงานตามชื่อช่าง (Field Engineer)'));
   return rep;
 }
-function doImport(p) {
+function doImport(p, opts) {
   const ts = Date.now();
   const up = { id: 'U' + (S.nextUp++), ts, file: p.file, sheet: p.sheet, rowsRead: 0, jobs: 0, new: 0, unchanged: 0, changed: 0, absent: 0, cancelled: 0, dup: 0, incomplete: 0, assigned: 0, unassigned: 0, review: 0, planDate: p.date, dups: [] };
   const allRecs = rowsToRecords(p.headers, p.rows, p.map, p.firstRowNo);
@@ -2585,8 +2760,11 @@ function doImport(p) {
   });
   if (up.mode === 'planned') { const rep = applyPlanned(up, seen, ts); up.planned = { locked: rep.locked, noName: rep.noName, noMatch: rep.noMatch, noSlot: rep.noSlot.length, frozen: rep.frozen, double: rep.double }; rep.dates.forEach(d => touched.add(d)); }
   S.selectedDate = p.date || S.selectedDate;
-  touched.forEach(d => { if (jobsOn(d).length || S.plans[d]) replan(d, 'นำเข้าไฟล์ ' + p.file); });
-  if (p.date) { const a = analyze(p.date); up.assigned = a.counts.assigned; up.unassigned = a.counts.unassigned; up.review = a.counts.review; up.planStatus = (S.plans[p.date] || {}).status; }
+  up._touched = [...touched];
+  if (!(opts && opts.skipReplan)) {
+    touched.forEach(d => { if (jobsOn(d).length || S.plans[d]) replan(d, 'นำเข้าไฟล์ ' + p.file); });
+    if (p.date) { const a = analyze(p.date); up.assigned = a.counts.assigned; up.unassigned = a.counts.unassigned; up.review = a.counts.review; up.planStatus = (S.plans[p.date] || {}).status; }
+  }
   S.uploads.unshift(up); save();
   return up;
 }
@@ -2762,8 +2940,16 @@ function distLine(e, a) {
       t = e.prev.d == null ? '↳ จาก S' + e.prev.fromSlot + ': ไม่มีพิกัด' : e.prev.same ? '↳ Slot เดียวกัน ห่าง ' + e.prev.d.toFixed(1) + ' กม.' : '↳ ห่างจาก S' + e.prev.fromSlot + ' ' + e.prev.d.toFixed(1) + ' กม.';
     }
   } else {
-    const zd = zoneDist(a.techById[e.tech], e.u);
-    if (zd != null) t = '⌂ ห่างเขตเริ่มงาน ~' + zd.toFixed(0) + ' กม.';
+    const zi = zoneDistInfo(a.techById[e.tech], e.u);
+    if (zi) {
+      const originLbl = zi.hasHome ? 'บ้านช่าง' : 'เขตเริ่มงาน';
+      if (zi.real) {
+        tip = 'ระยะทางและเวลาขับรถจริงจาก' + originLbl;
+        t = '⌂ จาก' + originLbl + ' ถนน ' + zi.km.toFixed(1) + ' กม. (~' + Math.round(zi.min) + ' น.)';
+      } else {
+        t = '⌂ ห่าง' + originLbl + ' ~' + zi.km.toFixed(0) + ' กม.';
+      }
+    }
   }
   return t ? '<small class="dist" title="' + tip + '">' + t + '</small>' : '';
 }
@@ -3301,6 +3487,12 @@ function viewMap(a) {
     const off = a.off[r.t.id]; const L = a.perTech[r.t.id].list;
     const seq = L.map((e, i) => {
       let arrow = '';
+      if (i === 0) {
+        const zi = zoneDistInfo(r.t, e.u);
+        if (zi && zi.real) {
+          arrow = '<span class="ok" title="จาก' + (zi.hasHome ? 'บ้านช่าง' : 'เขตเริ่มงาน') + '">⌂ ' + (zi.hasHome ? 'บ้านช่าง' : h(r.t.zone || 'เขต')) + ' → ' + zi.km.toFixed(1) + ' กม. (~' + Math.round(zi.min) + ' น.) →</span> ';
+        }
+      }
       if (i && e.prev) {
         if (e.prev.real && e.prev.roadKm != null) {
           arrow = ' <span class="ok" title="เวลาขับรถจริง ~' + Math.round(e.prev.roadMin) + ' นาที">→ ' + e.prev.roadKm.toFixed(1) + ' กม. (~' + Math.round(e.prev.roadMin) + ' น.) →</span> ';
@@ -3999,7 +4191,7 @@ function showImport() {
     o += '<h3>เลือกวันที่จัดแพลน</h3>' + (P.dates.length ? '<div class="radios">' + P.dates.map(x => '<label><input type="radio" name="pdate" data-chg="pdate" value="' + x.d + '"' + (x.d === P.date ? ' checked' : '') + '> ' + fmtDateTH(x.d) + ' <small>(' + x.n + ' ใบงาน)</small></label>').join('') + '</div><p class="muted small">ไฟล์ทั้งหมดถูกเก็บไว้ ส่วนวันที่อื่นสลับดูได้ภายหลัง และจะจัดให้อัตโนมัติเมื่อเลือกวันนั้น</p>' : '<div class="banner risk">ไม่มีแถวที่อ่านวันที่ได้ จึงยังจัดแพลนไม่ได้</div>');
     o += '<h3>ตัวอย่างข้อมูล (8 แถวแรก)</h3><div class="tscroll"><table class="data"><thead><tr><th>Request No.</th><th>Access Number</th><th>เวลานัด</th><th>เขตที่อ่านได้</th><th>พิกัด</th><th>Title</th></tr></thead><tbody>' + P.jobs.slice(0, 8).map(j => '<tr><td>' + h(j.req) + '</td><td>' + h(j.access) + '</td><td>' + h(j.timeErr ? j.timeErr : (j.date + ' ' + j.timeStr)) + '</td><td>' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</td><td>' + (j.coordSt === 'ok' ? j.lat + ', ' + j.lon : '⚠ ไม่ครบ/ผิด') + '</td><td>' + h((j.title || '').slice(0, 60)) + '</td></tr>').join('') + '</tbody></table></div>';
   }
-  o += '</div><div class="mfoot"><button class="btn primary" data-act="doImport"' + (P.err.length || !P.date ? ' disabled' : '') + ' autofocus>' + (P.mode === 'planned' ? 'ยืนยันนำเข้า และล็อกงานตามชื่อช่าง' : 'ยืนยันนำเข้า และเติมงานที่ว่างอัตโนมัติ') + '</button><button class="btn" data-act="closeModal">ยกเลิก</button></div>';
+  o += '<div id="importRouteProgress" style="display:none;margin-top:12px"></div></div><div class="mfoot"><button class="btn primary" id="btnDoImport" data-act="doImport"' + (P.err.length || !P.date ? ' disabled' : '') + ' autofocus>' + (P.mode === 'planned' ? 'ยืนยันนำเข้า (คำนวณระยะทางจริงและล็อกงาน)' : 'ยืนยันนำเข้า (คำนวณระยะทางจริงก่อนจัดแพลน)') + '</button><button class="btn" id="btnCancelImport" data-act="closeModal">ยกเลิก</button></div>';
   openModal(o, true);
 }
 function validateModal() {
@@ -4220,7 +4412,40 @@ const ACT = {
   backup: () => saveFile('planner-backup-' + new Date().toISOString().slice(0, 10) + '.json', new Blob([JSON.stringify(S)], { type: 'application/json' })),
   restorePick: () => $('restoreIn').click(),
   resetAll: () => ask('ลบข้อมูลทั้งหมด?', '<p>ใบงาน แพลนช่าง ประวัติ และแคชเส้นทางจะถูกลบจากเบราว์เซอร์นี้ ย้อนกลับไม่ได้<br><span class="muted small">ข้อมูลการตั้งค่า ช่าง วันหยุด และเงื่อนไขทั้งหมดตาม Google Sheet จะยังคงไว้เหมือนเดิม</span></p>', [{ label: 'ลบข้อมูลใบงานและแพลน', cls: 'danger', fn: () => { const keptTechs = clone(S.techs), keptDayOff = clone(S.dayOff), keptAliases = clone(S.aliases), keptSettings = clone(S.settings), keptCrossAll = S.crossAll; S = freshState(); S.techs = keptTechs; S.dayOff = keptDayOff; S.aliases = keptAliases; S.settings = keptSettings; S.crossAll = keptCrossAll; undoStack.length = 0; save(); closeModal(); render(); if (!settingsSyncTimer && !settingsSyncInFlight && !settingsSyncQueued) pullSettingsFromGoogleSheet({ silent: true, autoInitPush: false }); toast('ลบข้อมูลใบงานและแพลนทั้งหมดแล้ว (คงการตั้งค่าตาม Google Sheet ไว้)', 'ok'); } }, { label: 'ยกเลิก', fn: closeModal }]),
-  doImport: () => { const P = pending; const sh = P.sheets[P.si]; const up = doImport({ file: P.file, sheet: sh.name, headers: P.headers, rows: P.rows, map: P.map, date: P.date, firstRowNo: P.hr + 2, mode: P.mode }); pending = null; closeModal(); tab = 'plan'; render(); toast((up.mode === 'planned' ? 'ล็อกงานตามชื่อช่าง ' + (up.planned ? up.planned.locked : 0) + ' ใบ · ' : '') + 'นำเข้า ' + up.jobs + ' ใบงาน (ใหม่ ' + up.new + ', เปลี่ยน ' + up.changed + ', ซ้ำ ' + up.dup + ') · กรองออก ' + (up.filtered || 0) + ' แถว · จัดลงตาราง ' + up.assigned + ' ใบ, จัดไม่ได้ ' + up.unassigned + ', รอตรวจสอบ ' + up.review, 'ok'); }
+  doImport: async () => {
+    const P = pending; if (!P) return;
+    const btnOk = $('btnDoImport'), btnCancel = $('btnCancelImport'), prog = $('importRouteProgress');
+    if (btnOk) { btnOk.disabled = true; btnOk.textContent = '⏳ กำลังคำนวณระยะทางจริง...'; }
+    if (btnCancel) btnCancel.disabled = true;
+    if (prog) {
+      prog.style.display = 'block';
+      prog.innerHTML = '<div class="banner info">⏳ กำลังคำนวณระยะทางขับรถจริงจากบ้านช่าง / เขตเริ่มงาน ต่อเนื่องตามลำดับ Slot 1 → 2 → 3 → 4 → 5 ก่อนนำลงแพลน...</div>';
+    }
+    const sh = P.sheets[P.si];
+    const up = doImport({ file: P.file, sheet: sh.name, headers: P.headers, rows: P.rows, map: P.map, date: P.date, firstRowNo: P.hr + 2, mode: P.mode }, { skipReplan: true });
+    pending = null;
+    try {
+      if (prog) prog.scrollIntoView({ block: 'nearest' });
+      await prepareRealRoutesAndReplan(up._touched || (P.date ? [P.date] : []), 'นำเข้าไฟล์ ' + P.file, (done, total) => {
+        if (total > 0) {
+          if (btnOk) btnOk.textContent = '⏳ คำนวณระยะทางจริง (' + done + '/' + total + ' ช่วง)...';
+          if (prog) prog.innerHTML = '<div class="banner info">🚗 กำลังคำนวณระยะทางถนนจริง (บ้านช่าง/เขตเริ่มงาน → Slot 1 → 2 → 3 → 4 → 5): <b>' + done + ' / ' + total + '</b> ช่วง...</div>';
+        }
+      });
+    } catch (e) {}
+    if (up.planDate) {
+      const a = analyze(up.planDate);
+      up.assigned = a.counts.assigned;
+      up.unassigned = a.counts.unassigned;
+      up.review = a.counts.review;
+      up.planStatus = (S.plans[up.planDate] || {}).status;
+    }
+    save();
+    closeModal();
+    tab = 'plan';
+    render();
+    toast('✓ คำนวณระยะทางจริงและ' + (up.mode === 'planned' ? 'ล็อกงานตามชื่อช่าง ' + (up.planned ? up.planned.locked : 0) + ' ใบ · ' : '') + 'นำเข้า ' + up.jobs + ' ใบงาน (ใหม่ ' + up.new + ', เปลี่ยน ' + up.changed + ', ซ้ำ ' + up.dup + ') · กรองออก ' + (up.filtered || 0) + ' แถว · จัดลงตาราง ' + up.assigned + ' ใบ, จัดไม่ได้ ' + up.unassigned + ', รอตรวจสอบ ' + up.review, 'ok');
+  }
 };
 function afterExcludeChange(syncAction, syncDetail, toastMsg) { S.settings._userEditedFilters = true; Object.keys(S.plans).forEach(d => { if (S.plans[d] && S.plans[d].status !== 'cancelled') { Object.keys(S.plans[d].assign).forEach(k => { if (S.jobs[k] && isExcluded(S.jobs[k])) delete S.plans[d].assign[k]; }); if (jobsOn(d).length) replan(d, syncAction || 'เปลี่ยนเงื่อนไขคัดกรองงาน'); } }); save(); render(); scheduleSettingsSheetSync(syncAction || 'แก้ไขเงื่อนไขคัดกรองงาน', syncDetail || ''); toast(toastMsg || 'อัปเดตรายการตั้งค่าแล้ว', 'ok'); }
 function pushUndoSimple() { /* การแก้ Master Data ไม่อยู่ในประวัติย้อนกลับ */ }
@@ -4239,8 +4464,14 @@ function reparseAll() {
 }
 function selectDate(d) {
   if (!d) return; S.selectedDate = d;
-  if (jobsOn(d).length && !S.plans[d]) replan(d, 'เลือกวันที่ใหม่');
+  const needNew = jobsOn(d).length && !S.plans[d];
+  if (needNew) replan(d, 'เลือกวันที่ใหม่');
   save(); render();
+  if (needNew && S.settings.useRealRoutes !== false && collectPrePlanRoutePairs(d).length) {
+    prepareRealRoutesAndReplan([d], 'คำนวณระยะทางจริงเมื่อเปลี่ยนวันที่').then(() => {
+      if (S.selectedDate === d) render();
+    });
+  }
 }
 document.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if (!t) return; const f = ACT[t.dataset.act]; if (f) f(t, e); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('modal').hidden) closeModal(); if ((e.key === 'Enter' || e.key === ' ') && e.target.classList && e.target.classList.contains('chip')) { e.preventDefault(); jobDetail(e.target.dataset.key); } });
@@ -4335,13 +4566,25 @@ async function init() {
   $('btnUpload').addEventListener('click', () => $('fileIn').click());
   $('btnUploadPlan').addEventListener('click', () => $('fileInPlan').click());
   $('fileInPlan').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; handleFile(f, 'planned'); });
-  $('btnReplan').addEventListener('click', () => {
+  $('btnReplan').addEventListener('click', async () => {
     const d = curDate();
+    if (!d) return;
     if (S.plans[d] && S.plans[d].status === 'cancelled') { reopenPlan(d); }
-    replan(d, 'ผู้ใช้สั่งคำนวณใหม่');
-    save();
-    render();
-    toast('จัดร่างแพลนใหม่แล้ว', 'ok');
+    const btn = $('btnReplan');
+    const needFetch = S.settings.useRealRoutes !== false && collectPrePlanRoutePairs(d).length > 0;
+    if (needFetch && btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ กำลังคำนวณระยะทางจริง...';
+    }
+    try {
+      await prepareRealRoutesAndReplan([d], 'ผู้ใช้สั่งคำนวณใหม่');
+    } finally {
+      if (btn) {
+        btn.textContent = '⚡ สร้างร่างแพลนอัตโนมัติใหม่';
+      }
+      render();
+      toast('จัดร่างแพลนใหม่ตามระยะทางจริงแล้ว', 'ok');
+    }
   });
   if ($('btnClearDayPlan')) {
     $('btnClearDayPlan').addEventListener('click', () => {
