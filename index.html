@@ -1660,7 +1660,7 @@ function pairInfo(a, b) { // a ก่อน b ตามเวลาเริ่�
     const roadKm = cached.roadKm;
     const roadMin = cached.roadMin;
     const need = S.settings.workMin + roadMin;
-    const hasRealRoad = Boolean(cached.polyline && cached.polyline.length > 5 && cached.source !== "fallback_estimate");
+    const hasRealRoad = Boolean((cached.polyline && cached.polyline.length > 5 && cached.source !== "fallback_estimate") || cached.source === "osrm_table");
     return {
       d,
       roadKm,
@@ -1857,6 +1857,159 @@ async function calculateRealRoutesForDate(date) {
   toast("✓ คำนวณเส้นทางและเวลาขับขี่จริงเรียบร้อยแล้ว (" + calculatedCount + " ช่วง) เส้นทางโค้งตามแนวถนนจริง", "ok");
   isCalculatingRoutes = false;
   render();
+}
+
+function getRealRoadMetric(origin, dest) {
+  if (!origin || !dest || origin.lat == null || origin.lon == null || dest.lat == null || dest.lon == null) return null;
+  const direct = haversine(origin, dest);
+  const cached = getCachedRoute(origin, dest);
+  if (cached && cached.roadKm != null && cached.source !== "fallback_estimate") {
+    return { km: cached.roadKm, min: cached.roadMin != null ? cached.roadMin : travelMin(direct), direct, real: true };
+  }
+  return { km: direct, min: travelMin(direct), direct, real: false };
+}
+
+async function fetchRealRoadMatrix(pairs) {
+  if (!pairs || !pairs.length) return 0;
+  S.routes = S.routes || {};
+  const missing = [];
+  const seen = new Set();
+  pairs.forEach(p => {
+    if (!p || !p.origin || !p.destination) return;
+    if (p.origin.lat == null || p.origin.lon == null || p.destination.lat == null || p.destination.lon == null) return;
+    const k = routeKey(p.origin, p.destination);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    const cached = getCachedRoute(p.origin, p.destination);
+    if (cached && cached.roadKm != null && cached.source !== "fallback_estimate") return;
+    missing.push({ key: k, origin: p.origin, destination: p.destination });
+  });
+  if (!missing.length) return 0;
+
+  const byOrigin = new Map();
+  const byDest = new Map();
+  missing.forEach(m => {
+    const ok = Number(m.origin.lat).toFixed(5) + "," + Number(m.origin.lon).toFixed(5);
+    const dk = Number(m.destination.lat).toFixed(5) + "," + Number(m.destination.lon).toFixed(5);
+    if (!byOrigin.has(ok)) byOrigin.set(ok, []);
+    byOrigin.get(ok).push(m);
+    if (!byDest.has(dk)) byDest.set(dk, []);
+    byDest.get(dk).push(m);
+  });
+
+  const assigned = new Set();
+  const batches = [];
+  const allGroups = [];
+  byOrigin.forEach(items => allGroups.push({ type: "origin", items }));
+  byDest.forEach(items => allGroups.push({ type: "dest", items }));
+  allGroups.sort((a, b) => b.items.length - a.items.length);
+
+  const CHUNK = 45;
+  allGroups.forEach(g => {
+    const rem = g.items.filter(m => !assigned.has(m.key));
+    if (!rem.length) return;
+    rem.forEach(m => assigned.add(m.key));
+    for (let i = 0; i < rem.length; i += CHUNK) {
+      batches.push({ type: g.type, items: rem.slice(i, i + CHUNK) });
+    }
+  });
+
+  let updated = 0;
+  const CONCURRENCY = 4;
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const slice = batches.slice(i, i + CONCURRENCY);
+    await Promise.all(slice.map(async batch => {
+      const items = batch.items;
+      if (!items.length) return;
+      try {
+        if (batch.type === "origin") {
+          const anchor = items[0].origin;
+          const coords = [anchor.lon + "," + anchor.lat].concat(items.map(m => m.destination.lon + "," + m.destination.lat)).join(";");
+          const destIdx = items.map((_, idx) => idx + 1).join(";");
+          const url = "https://router.project-osrm.org/table/v1/driving/" + coords + "?sources=0&destinations=" + destIdx + "&annotations=distance,duration";
+          const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.code === "Ok" && data.distances && data.distances[0] && data.durations && data.durations[0]) {
+              items.forEach((m, idx) => {
+                const distM = data.distances[0][idx];
+                const durS = data.durations[0][idx];
+                if (typeof distM === "number" && isFinite(distM) && typeof durS === "number" && isFinite(durS)) {
+                  const prevCache = S.routes[m.key];
+                  S.routes[m.key] = {
+                    roadKm: distM / 1000,
+                    roadMin: durS / 60,
+                    distanceMeters: Math.round(distM),
+                    durationSeconds: Math.round(durS),
+                    polyline: (prevCache && prevCache.polyline) || "",
+                    source: (prevCache && prevCache.polyline) ? prevCache.source : "osrm_table",
+                    ts: Date.now()
+                  };
+                  updated++;
+                }
+              });
+              return;
+            }
+          }
+        } else {
+          const anchor = items[0].destination;
+          const coords = [anchor.lon + "," + anchor.lat].concat(items.map(m => m.origin.lon + "," + m.origin.lat)).join(";");
+          const srcIdx = items.map((_, idx) => idx + 1).join(";");
+          const url = "https://router.project-osrm.org/table/v1/driving/" + coords + "?sources=" + srcIdx + "&destinations=0&annotations=distance,duration";
+          const res = await fetch(url, { signal: AbortSignal.timeout(7000) });
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.code === "Ok" && data.distances && data.durations) {
+              items.forEach((m, idx) => {
+                const distM = data.distances[idx] && data.distances[idx][0];
+                const durS = data.durations[idx] && data.durations[idx][0];
+                if (typeof distM === "number" && isFinite(distM) && typeof durS === "number" && isFinite(durS)) {
+                  const prevCache = S.routes[m.key];
+                  S.routes[m.key] = {
+                    roadKm: distM / 1000,
+                    roadMin: durS / 60,
+                    distanceMeters: Math.round(distM),
+                    durationSeconds: Math.round(durS),
+                    polyline: (prevCache && prevCache.polyline) || "",
+                    source: (prevCache && prevCache.polyline) ? prevCache.source : "osrm_table",
+                    ts: Date.now()
+                  };
+                  updated++;
+                }
+              });
+              return;
+            }
+          }
+        }
+      } catch (e) {}
+
+      await Promise.all(items.map(async m => {
+        try {
+          const url = "https://router.project-osrm.org/route/v1/driving/" + m.origin.lon + "," + m.origin.lat + ";" + m.destination.lon + "," + m.destination.lat + "?overview=full&geometries=polyline";
+          const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+          if (r.ok) {
+            const d = await r.json();
+            if (d && d.code === "Ok" && d.routes && d.routes[0]) {
+              const rt = d.routes[0];
+              S.routes[m.key] = {
+                roadKm: rt.distance / 1000,
+                roadMin: rt.duration / 60,
+                distanceMeters: Math.round(rt.distance),
+                durationSeconds: Math.round(rt.duration),
+                polyline: rt.geometry || "",
+                source: "osrm",
+                ts: Date.now()
+              };
+              updated++;
+            }
+          }
+        } catch (err) {}
+      }));
+    }));
+  }
+
+  if (updated > 0) save();
+  return updated;
 }
 
 function homeRef(t) { if (t.picked) return null; const la = parseCoord(t.homeLat, 'lat'), lo = parseCoord(t.homeLon, 'lon'); return la.st === 'ok' && lo.st === 'ok' ? { lat: la.n, lon: lo.n } : null; }
@@ -3559,21 +3712,166 @@ function jobDetail(key) {
 }
 
 let cpCtx = null;
+let dblCtx = null;
+let modalRouteToken = 0;
+
+function cellPickContinuousMetrics(t, slot, prev, next, u) {
+  const legs = [];
+  if (!u || !u.coord) return { legs, totalKm: null, totalMin: null, allReal: false };
+  if (prev && prev.u.coord) {
+    const m = getRealRoadMetric(prev.u.coord, u.coord);
+    if (m) legs.push({ label: 'จาก S' + prev.slot, km: m.km, min: m.min, direct: m.direct, real: m.real });
+  }
+  if (next && next.u.coord) {
+    const m = getRealRoadMetric(u.coord, next.u.coord);
+    if (m) legs.push({ label: 'ไป S' + next.slot, km: m.km, min: m.min, direct: m.direct, real: m.real });
+  }
+  if (!legs.length) {
+    const ref = zoneRef(t);
+    if (ref) {
+      const m = getRealRoadMetric(ref, u.coord);
+      if (m) legs.push({ label: 'จากเขตเริ่มงาน ' + (t.zone || ''), km: m.km, min: m.min, direct: m.direct, real: m.real, isZone: true });
+    }
+  }
+  if (!legs.length) return { legs, totalKm: null, totalMin: null, allReal: false };
+  const totalKm = legs.reduce((s, x) => s + x.km, 0);
+  const totalMin = legs.reduce((s, x) => s + x.min, 0);
+  const allReal = legs.every(x => x.real);
+  return { legs, totalKm, totalMin, allReal };
+}
+
+function fmtContinuousLegsHtml(cm, loading) {
+  if (!cm || !cm.legs.length) return '<small class="muted">ไม่มีพิกัดสำหรับคำนวณระยะ</small>';
+  const parts = cm.legs.map(lg => {
+    if (lg.real) return h(lg.label) + ' ถนน <b>' + lg.km.toFixed(1) + ' กม.</b> (~' + Math.round(lg.min) + ' น.)';
+    return h(lg.label) + ' ~' + lg.direct.toFixed(1) + ' กม. ' + (loading ? '(รอระยะจริง...)' : '(ประมาณ)');
+  });
+  const prefix = cm.allReal ? '🛣️ ' : (loading ? '⏳ ' : '');
+  const totalTxt = (cm.legs.length > 1 && cm.allReal) ? ' · รวม <b>' + cm.totalKm.toFixed(1) + ' กม.</b> (~' + Math.round(cm.totalMin) + ' น.)' : '';
+  return '<small style="color:' + (cm.allReal ? '#0f766e' : 'var(--muted)') + '">' + prefix + parts.join(' → ') + totalTxt + '</small>';
+}
+
 function cellPickList(q) {
-  const { tech, slot, a, L } = cpCtx; const t = a.techById[tech]; q = String(q || '').trim().toLowerCase();
+  const { tech, slot, a, L, loading } = cpCtx; const t = a.techById[tech]; q = String(q || '').trim().toLowerCase();
   const list = a.perTech[tech].list; const prev = list.filter(e => e.slot < slot).pop(), next = list.find(e => e.slot > slot);
   const rows = L.filter(u => !q || (u.district || 'รอตรวจสอบเขต').toLowerCase().includes(q) || u.jobs.some(j => (j.access || '').includes(q) || (j.title || '').toLowerCase().includes(q) || (j.address || '').toLowerCase().includes(q))).map(u => {
-    const ds = [prev, next].filter(Boolean).filter(e => e.u.coord).map(e => haversine(u.coord || { lat: 0, lon: 0 }, e.u.coord)); 
-    const d = !u.coord ? null : ds.length ? Math.min.apply(null, ds) : zoneDist(t, u);
-    return { u, d, same: u.slot === slot };
+    const cm = cellPickContinuousMetrics(t, slot, prev, next, u);
+    return { u, cm, d: cm.totalKm, same: u.slot === slot };
   }).sort((x, y) => (y.same - x.same) || ((x.d == null) - (y.d == null)) || (x.d - y.d));
   if (!rows.length) return '<p class="muted">ไม่พบงานที่ตรงกับคำค้นหา</p>';
-  return rows.map(r => '<div class="pickrow"><code>' + h(r.u.jobs.map(j => j.access + ' ' + (j.timeStr || '')).join(' | ')) + '</code> <b>' + h(r.u.district || 'รอตรวจสอบเขต') + '</b> ' + (r.same ? '' : '<span class="pill warn">นัด Slot ' + (r.u.slot || '?') + ' ไม่ตรงช่องนี้</span> ') + (r.d != null ? '<small>~' + r.d.toFixed(1) + ' กม. เส้นตรง</small> ' : '') + (r.u.removedByUser ? '<small>⊘ เคยนำออก</small> ' : '') + '<button class="btn small primary" data-act="cellPut" data-k="' + h(r.u.jobs[0].key) + '" data-t="' + tech + '" data-s="' + slot + '">เลือก</button></div>').join('');
+  return rows.map(r => '<div class="pickrow"><code>' + h(r.u.jobs.map(j => j.access + ' ' + (j.timeStr || '')).join(' | ')) + '</code> <b>' + h(r.u.district || 'รอตรวจสอบเขต') + '</b> ' + (r.same ? '' : '<span class="pill warn">นัด Slot ' + (r.u.slot || '?') + ' ไม่ตรงช่องนี้</span> ') + fmtContinuousLegsHtml(r.cm, loading) + ' ' + (r.u.removedByUser ? '<small>⊘ เคยนำออก</small> ' : '') + '<button class="btn small primary" data-act="cellPut" data-k="' + h(r.u.jobs[0].key) + '" data-t="' + tech + '" data-s="' + slot + '">เลือก</button></div>').join('');
 }
+
+async function loadCellPickRealRoutes(ctx) {
+  const { tech, slot, a, L, token } = ctx;
+  const t = a.techById[tech];
+  const list = a.perTech[tech].list;
+  const prev = list.filter(e => e.slot < slot).pop();
+  const next = list.find(e => e.slot > slot);
+  const zRef = (!prev && !next) ? zoneRef(t) : null;
+  const pairs = [];
+  let withCoord = 0;
+  L.forEach(u => {
+    if (!u || !u.coord) return;
+    withCoord++;
+    if (prev && prev.u.coord) pairs.push({ origin: prev.u.coord, destination: u.coord });
+    if (next && next.u.coord) pairs.push({ origin: u.coord, destination: next.u.coord });
+    if (!prev && !next && zRef) pairs.push({ origin: zRef, destination: u.coord });
+  });
+  try {
+    if (pairs.length) await fetchRealRoadMatrix(pairs);
+  } catch (e) {}
+  if ($('modal').hidden || !cpCtx || cpCtx.token !== token) return;
+  cpCtx.loading = false;
+  const allReal = L.filter(u => u && u.coord).every(u => cellPickContinuousMetrics(t, slot, prev, next, u).allReal);
+  const stEl = $('cpStatus');
+  if (stEl) {
+    stEl.innerHTML = withCoord === 0
+      ? '<span class="pill off">งานที่ค้างยังไม่มีพิกัดสำหรับการคำนวณระยะทางจริง</span>'
+      : allReal
+        ? '<span class="pill ok">✓ คำนวณระยะทางจริงตามถนนจากงานต่อเนื่องในแพลนแล้ว (' + withCoord + ' งาน)</span>'
+        : '<span class="pill warn">คำนวณระยะทางจริงเสร็จสิ้น (บางงานใช้ระยะประมาณเนื่องจากบริการเส้นทางไม่ตอบสนอง)</span>';
+  }
+  const listEl = $('cpList');
+  if (listEl) listEl.innerHTML = cellPickList(($('cpq') && $('cpq').value) || '');
+}
+
 function hlText(t) {
   const words = (S.settings.hlWords || []).filter(Boolean); let out = h(t); if (!words.length) return out;
   const esc = w => h(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return out.replace(new RegExp('(' + words.map(esc).join('|') + ')', 'gi'), '<mark class="hl">$1</mark>');
+}
+
+function renderDblSuggestList(ctx) {
+  const { techId, slot, a, refs, cands, dk, loading } = ctx;
+  if (!refs.length) return '<p class="muted">งานใน Slot นี้ยังไม่มีพิกัด จึงไม่สามารถคำนวณระยะทางแนะนำงานเบิ้ลได้</p>';
+  if (!cands.length) return '<p class="muted">ไม่พบงานที่ยังไม่จัดใน Slot ' + slot + ' ที่ห่างไม่เกิน ' + dk + ' กม. จากงานในช่องนี้</p>';
+  const t = a.techById[techId];
+  const list = a.perTech[techId].list;
+  const prev = list.filter(e => e.slot < slot).pop();
+  const next = list.find(e => e.slot > slot);
+  const rows = cands.map(u => {
+    let bestSame = null;
+    refs.forEach(e => {
+      const forward = u.start < e.u.start;
+      const m = forward ? getRealRoadMetric(u.coord, e.u.coord) : getRealRoadMetric(e.u.coord, u.coord);
+      if (m && (!bestSame || m.km < bestSame.km)) bestSame = m;
+    });
+    const cm = cellPickContinuousMetrics(t, slot, prev, next, u);
+    const sameKm = bestSame ? bestSame.km : Infinity;
+    const withinReal = bestSame ? bestSame.km <= dk : false;
+    return { u, bestSame, cm, sameKm, withinReal };
+  }).sort((x, y) => (y.withinReal - x.withinReal) || (x.sameKm - y.sameKm) || ((x.cm.totalKm == null) - (y.cm.totalKm == null)) || (x.cm.totalKm - y.cm.totalKm));
+
+  return rows.map(r => {
+    const s = r.bestSame;
+    const sameTxt = s
+      ? (s.real
+        ? '<small style="color:#0f766e">🛣️ Slot เดียวกัน ถนน <b>' + s.km.toFixed(1) + ' กม.</b> (~' + Math.round(s.min) + ' น.)</small>'
+        : '<small class="muted">' + (loading ? '⏳ ' : '') + 'Slot เดียวกัน ~' + s.direct.toFixed(1) + ' กม. ' + (loading ? '(รอระยะจริง...)' : '(ประมาณ)') + '</small>')
+      : '';
+    const overWarn = (s && s.real && s.km > dk) ? ' <span class="pill warn">ถนนเกินเกณฑ์ ' + dk + ' กม.</span>' : '';
+    const contTxt = r.cm && r.cm.legs.length ? ' <span class="muted">·</span> ' + fmtContinuousLegsHtml(r.cm, loading) : '';
+    return '<div class="pickrow"><code>' + h(r.u.jobs.map(j => j.access + ' ' + (j.timeStr || '')).join(' | ')) + '</code> <b>' + h(r.u.district || 'รอตรวจสอบเขต') + '</b> ' + sameTxt + overWarn + contTxt + ' ' + (r.u.removedByUser ? '<small>⊘ เคยนำออก</small> ' : '') + '<button class="btn small primary" data-act="acceptDouble" data-k="' + h(r.u.jobs[0].key) + '" data-t="' + h(techId) + '" data-s="' + slot + '">เลือกเบิ้ล</button></div>';
+  }).join('');
+}
+
+async function loadDblSuggestRealRoutes(ctx) {
+  const { techId, slot, a, refs, cands, token } = ctx;
+  if (!refs.length || !cands.length) return;
+  const t = a.techById[techId];
+  const list = a.perTech[techId].list;
+  const prev = list.filter(e => e.slot < slot).pop();
+  const next = list.find(e => e.slot > slot);
+  const zRef = (!prev && !next) ? zoneRef(t) : null;
+  const pairs = [];
+  cands.forEach(u => {
+    if (!u || !u.coord) return;
+    refs.forEach(e => {
+      if (u.start < e.u.start) pairs.push({ origin: u.coord, destination: e.u.coord });
+      else pairs.push({ origin: e.u.coord, destination: u.coord });
+    });
+    if (prev && prev.u.coord) pairs.push({ origin: prev.u.coord, destination: u.coord });
+    if (next && next.u.coord) pairs.push({ origin: u.coord, destination: next.u.coord });
+    if (!prev && !next && zRef) pairs.push({ origin: zRef, destination: u.coord });
+  });
+  try {
+    if (pairs.length) await fetchRealRoadMatrix(pairs);
+  } catch (e) {}
+  if ($('modal').hidden || !dblCtx || dblCtx.token !== token) return;
+  dblCtx.loading = false;
+  const stEl = $('dblStatus');
+  if (stEl) {
+    const allReal = cands.every(u => refs.every(e => {
+      const m = u.start < e.u.start ? getRealRoadMetric(u.coord, e.u.coord) : getRealRoadMetric(e.u.coord, u.coord);
+      return m && m.real;
+    }));
+    stEl.innerHTML = allReal
+      ? '<span class="pill ok">✓ คำนวณระยะทางจริงตามแนวถนนและงานต่อเนื่องในแพลนแล้ว (' + cands.length + ' งาน)</span>'
+      : '<span class="pill warn">คำนวณระยะทางจริงเสร็จสิ้น (บางช่วงใช้ระยะประมาณเนื่องจากบริการเส้นทางไม่ตอบสนอง)</span>';
+  }
+  const listEl = $('dblList');
+  if (listEl) listEl.innerHTML = renderDblSuggestList(dblCtx);
 }
 
 function dblSuggestModal(techId, slot) {
@@ -3583,13 +3881,17 @@ function dblSuggestModal(techId, slot) {
   const cell = (a.cells[techId] || {})[slot] || [];
   const refs = cell.filter(e => e.u.coord);
   const dk = S.settings.doubleKm;
-  const rows = a.unassigned.filter(u => u.slot === slot && u.coord).map(u => {
-    const ds = refs.map(e => haversine(u.coord, e.u.coord)); return { u, d: ds.length ? Math.min.apply(null, ds) : null };
-  }).filter(r => r.d != null && r.d <= dk).sort((x, y) => x.d - y.d);
+  const cands = refs.length
+    ? a.unassigned.filter(u => u.slot === slot && u.coord && refs.some(e => haversine(u.coord, e.u.coord) <= dk))
+    : [];
   const full = a.perTech[techId].units >= S.settings.maxHouses;
-  const body = '<p class="muted">งานของ <b>' + h(t.name) + '</b> ใน Slot ' + slot + ': <code>' + h(cell.map(e => e.u.jobs[0].access).join(', ')) + '</code><br>แสดงงานที่ยังไม่จัด เวลานัดตรง Slot นี้ และห่างจากงานในช่องไม่เกิน ' + dk + ' กม. (ระยะเส้นตรง ยังไม่ได้ตรวจเวลาเดินทางจริง/ฝั่งแม่น้ำ/กฎคลอง) ยังไม่ใส่ลงแพลน ต้องกดเลือกเอง</p>' + (full ? '<div class="banner warn">ช่างคนนี้มีงานครบ ' + S.settings.maxHouses + ' หลังแล้ว ถ้าเลือกจะเกินเกณฑ์ (ขึ้นเตือน)</div>' : '') +
-    (rows.length ? rows.map(r => '<div class="pickrow"><code>' + h(r.u.jobs.map(j => j.access + ' ' + (j.timeStr || '')).join(' | ')) + '</code> <b>' + h(r.u.district || 'รอตรวจสอบเขต') + '</b> <small>~' + r.d.toFixed(1) + ' กม. เส้นตรง</small> ' + (r.u.removedByUser ? '<small>⊘ เคยนำออก</small> ' : '') + '<button class="btn small primary" data-act="acceptDouble" data-k="' + h(r.u.jobs[0].key) + '" data-t="' + h(techId) + '" data-s="' + slot + '">เลือกเบิ้ล</button></div>').join('') : '<p class="muted">ไม่พบงานที่ยังไม่จัดใน Slot ' + slot + ' ที่ห่างไม่เกิน ' + dk + ' กม. จากงานในช่องนี้</p>');
+  dblCtx = { techId, slot, a, refs, cands, dk, loading: cands.length > 0, token: ++modalRouteToken };
+  const statusHtml = cands.length
+    ? '<div id="dblStatus" style="margin:6px 0 8px"><span class="pill info">⏳ กำลังคำนวณระยะทางจริงตามถนนจากงานในช่องและงานต่อเนื่องในแพลน (' + cands.length + ' งาน)...</span></div>'
+    : '';
+  const body = '<p class="muted">งานของ <b>' + h(t.name) + '</b> ใน Slot ' + slot + ': <code>' + h(cell.map(e => e.u.jobs[0].access).join(', ')) + '</code><br>แสดงงานที่ยังไม่จัด เวลานัดตรง Slot นี้ และคำนวณระยะทางขับรถจริงทั้งใน Slot เดียวกันและงานต่อเนื่องกันในแพลน (ยังไม่ได้ตรวจฝั่งแม่น้ำ/กฎคลอง) ยังไม่ใส่ลงแพลน ต้องกดเลือกเอง</p>' + (full ? '<div class="banner warn">ช่างคนนี้มีงานครบ ' + S.settings.maxHouses + ' หลังแล้ว ถ้าเลือกจะเกินเกณฑ์ (ขึ้นเตือน)</div>' : '') + statusHtml + '<div id="dblList">' + renderDblSuggestList(dblCtx) + '</div>';
   openModal('<h2>แนะนำงานเบิ้ล · ' + h(t.name) + ' · Slot ' + slot + '</h2><div class="mbody">' + body + '</div>');
+  if (cands.length) loadDblSuggestRealRoutes(dblCtx);
 }
 function pickModal(key, techId, slot) {
   const j = S.jobs[key]; const d = j.date || curDate(); const a = analyze(d);
@@ -3784,7 +4086,7 @@ const ACT = {
   clearTechDo: t => { const d = curDate(), id = t.dataset.t; closeModal(); const n = clearTech(d, id); render(); toast('ล้างแพลนแล้ว ' + n + ' ใบ (ย้อนกลับได้)', 'ok'); },
   techLock: t => { const d = curDate(), pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } const on = toggleTechLock(d, t.dataset.t); save(); render(); toast(on ? 'ล็อกงานของช่างคนนี้แล้ว จัดใหม่รอบหน้าจะไม่ย้ายและไม่เพิ่มงานให้' : 'ปลดล็อกแล้ว', 'ok'); },
   dayoff: t => { const d = curDate(), id = t.dataset.t, cur = !!(S.dayOff[d] || {})[id]; const had = setDayOff(d, id, !cur); render(); const tc = S.techs.find(x => x.id === id); scheduleSettingsSheetSync(!cur ? 'เพิ่มวันหยุดช่าง' : 'ลบวันหยุดช่าง', (tc ? tc.name : id) + ' วันที่ ' + d); toast(!cur ? 'ตั้งเป็นวันหยุดแล้ว' + (had ? ' นำงาน ' + had + ' ใบออกจากช่างและจัดใหม่ให้' : '') : 'ยกเลิกวันหยุดแล้ว และจัดแพลนใหม่', 'ok'); },
-  cellPick: t => { const d = curDate(), a = analyze(d); const L = a.unassigned.concat(a.review); if (!L.length) { toast('ไม่มีงานค้างให้จัด ลากงานจากช่องอื่นมาวางได้'); return; } cpCtx = { tech: t.dataset.t, slot: +t.dataset.s, a, L }; openModal('<h2>เลือกงานลงช่องนี้ (' + h(a.techById[t.dataset.t].name) + ' · Slot ' + t.dataset.s + ')</h2><div class="mbody"><input id="cpq" type="search" placeholder="ค้นหาเขต / Access Number / ชื่องาน" style="width:100%" autofocus><p class="small muted">เรียงงานที่เวลานัดตรง Slot นี้ก่อน แล้วเรียงตามความใกล้ (ระยะเส้นตรงจากงานก่อน/หลังของช่าง หรือเขตเริ่มงาน)</p><div id="cpList">' + cellPickList('') + '</div></div>'); },
+  cellPick: t => { const d = curDate(), a = analyze(d); const L = a.unassigned.concat(a.review); if (!L.length) { toast('ไม่มีงานค้างให้จัด ลากงานจากช่องอื่นมาวางได้'); return; } cpCtx = { tech: t.dataset.t, slot: +t.dataset.s, a, L, loading: true, token: ++modalRouteToken }; openModal('<h2>เลือกงานลงช่องนี้ (' + h(a.techById[t.dataset.t].name) + ' · Slot ' + t.dataset.s + ')</h2><div class="mbody"><input id="cpq" type="search" placeholder="ค้นหาเขต / Access Number / ชื่องาน" style="width:100%" autofocus><p class="small muted">เรียงงานที่เวลานัดตรง Slot นี้ก่อน แล้วเรียงตามระยะทางขับรถจริงจากงานต่อเนื่องกันในแพลน</p><div id="cpStatus" style="margin:6px 0 8px"><span class="pill info">⏳ กำลังคำนวณระยะทางจริงตามถนนจากงานต่อเนื่องในแพลน (' + L.length + ' งาน)...</span></div><div id="cpList">' + cellPickList('') + '</div></div>'); loadCellPickRealRoutes(cpCtx); },
   cellPut: t => tryAssign(t.dataset.k, t.dataset.t, +t.dataset.s),
   unitPick: t => pickModal(t.dataset.k),
   pickGo: t => tryAssign(t.dataset.k, $('pkTech').value, +$('pkSlot').value),
