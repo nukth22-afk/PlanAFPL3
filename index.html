@@ -1843,124 +1843,95 @@ function pairInfo(a, b) { // a ก่อน b ตามเวลาเริ่�
 
 let isCalculatingRoutes = false;
 let routeCalcProgress = { total: 0, done: 0 };
+let isAutoFetchingMapPolylines = false;
+const autoPolyAttemptedKeys = new Set();
 
-async function calculateRealRoutesForDate(date) {
-  if (isCalculatingRoutes) return;
-  const a = analyze(date);
-  if (!a) { toast("ไม่มีข้อมูลแพลนในวันที่เลือก", "err"); return; }
+function hasRealRoadPolyline(cached) {
+  return !!(cached && cached.polyline && cached.polyline.length > 5 && cached.source !== "fallback_estimate" && cached.source !== "road_interpolated");
+}
 
-  const pairsToFetch = [];
-  const seenKeys = new Set();
+function collectDateRouteLegs(a, forceAll) {
+  if (!a) return [];
+  const pairs = [];
+  const seen = new Set();
+  const addLeg = (o, d) => {
+    if (!o || !d || o.lat == null || o.lon == null || d.lat == null || d.lon == null) return;
+    const k = routeKey(o, d);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    if (!forceAll && hasRealRoadPolyline(getCachedRoute(o, d))) return;
+    pairs.push({
+      id: k,
+      origin: { lat: Number(o.lat), lon: Number(o.lon) },
+      destination: { lat: Number(d.lat), lon: Number(d.lon) }
+    });
+  };
   a.techs.forEach(t => {
     const L = a.perTech[t.id] ? a.perTech[t.id].list : [];
-    for (let i = 1; i < L.length; i++) {
-      const A = L[i - 1], B = L[i];
-      if (A.u.coord && B.u.coord) {
-        const k = routeKey(A.u.coord, B.u.coord);
-        if (k && !seenKeys.has(k)) {
-          seenKeys.add(k);
-          const cached = getCachedRoute(A.u.coord, B.u.coord);
-          const hasRealRoad = cached && cached.polyline && cached.polyline.length > 5 && cached.source !== "fallback_estimate";
-          if (!hasRealRoad) {
-            pairsToFetch.push({
-              id: k,
-              origin: { lat: A.u.coord.lat, lon: A.u.coord.lon },
-              destination: { lat: B.u.coord.lat, lon: B.u.coord.lon }
-            });
-          }
-        }
-      }
+    const pts = L.filter(e => e.u && e.u.coord);
+    const home = !t.picked ? techHomeCoord(t) : null;
+    if (home && pts.length) addLeg(home, pts[0].u.coord);
+    for (let i = 1; i < pts.length; i++) {
+      addLeg(pts[i - 1].u.coord, pts[i].u.coord);
     }
   });
+  return pairs;
+}
 
-  // If all pairs were already calculated with roads, re-fetch all so user can refresh routes on click
-  if (!pairsToFetch.length) {
-    seenKeys.clear();
-    a.techs.forEach(t => {
-      const L = a.perTech[t.id] ? a.perTech[t.id].list : [];
-      for (let i = 1; i < L.length; i++) {
-        const A = L[i - 1], B = L[i];
-        if (A.u.coord && B.u.coord) {
-          const k = routeKey(A.u.coord, B.u.coord);
-          if (k && !seenKeys.has(k)) {
-            seenKeys.add(k);
-            pairsToFetch.push({
-              id: k,
-              origin: { lat: A.u.coord.lat, lon: A.u.coord.lon },
-              destination: { lat: B.u.coord.lat, lon: B.u.coord.lon }
-            });
-          }
-        }
-      }
-    });
-  }
-
-  if (!pairsToFetch.length) {
-    toast("ไม่มีรายการงานที่มีพิกัดต่อเนื่องกันในวันนี้", "warn");
-    return;
-  }
-
-  isCalculatingRoutes = true;
-  routeCalcProgress = { total: pairsToFetch.length, done: 0 };
-  render();
-  toast("🚗 กำลังคำนวณเส้นทางและเวลาตามถนนจริง " + pairsToFetch.length + " ช่วง...", "info");
-
+async function fetchRoutePolylinesBatch(pairsToFetch, onProgress, allowFallback) {
+  if (!pairsToFetch || !pairsToFetch.length) return 0;
   S.routes = S.routes || {};
   let calculatedCount = 0;
+  const handled = new Set();
 
   // 1. First attempt: Check backend /api/routes/batch (if running on local dev server)
-  let backendHandled = false;
   const isStaticHost = window.location.hostname.endsWith("github.io") || window.location.protocol === "file:";
   if (!isStaticHost) {
-  try {
-    const res = await fetch("/api/routes/batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pairs: pairsToFetch }),
-      signal: AbortSignal.timeout(3500)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.results && Object.keys(data.results).length) {
-        let hasValidRoads = false;
-        Object.keys(data.results).forEach(k => {
-          const item = data.results[k];
-          if (item && item.distanceMeters != null && item.polyline && item.polyline.length > 5) {
-            S.routes[k] = {
-              roadKm: item.distanceMeters / 1000,
-              roadMin: item.durationSeconds / 60,
-              distanceMeters: item.distanceMeters,
-              durationSeconds: item.durationSeconds,
-              polyline: item.polyline,
-              source: item.source || "google_maps",
-              ts: Date.now()
-            };
-            calculatedCount++;
-            hasValidRoads = true;
-          }
-        });
-        if (hasValidRoads) {
-          backendHandled = true;
+    try {
+      const res = await fetch("/api/routes/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pairs: pairsToFetch }),
+        signal: AbortSignal.timeout(3500)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.results && Object.keys(data.results).length) {
+          Object.keys(data.results).forEach(k => {
+            const item = data.results[k];
+            if (item && item.distanceMeters != null && item.polyline && item.polyline.length > 5) {
+              S.routes[k] = {
+                roadKm: item.distanceMeters / 1000,
+                roadMin: item.durationSeconds / 60,
+                distanceMeters: item.distanceMeters,
+                durationSeconds: item.durationSeconds,
+                polyline: item.polyline,
+                source: item.source || "google_maps",
+                ts: Date.now()
+              };
+              handled.add(k);
+              calculatedCount++;
+            }
+          });
         }
       }
-    }
-  } catch(e) {}
+    } catch (e) {}
   }
 
-  // 2. If not handled by backend (e.g. running on GitHub Pages or no Google Maps key), use direct client-side OSRM routing
-  if (!backendHandled) {
-    const CHUNK_SIZE = 4;
-    for (let i = 0; i < pairsToFetch.length; i += CHUNK_SIZE) {
-      const chunk = pairsToFetch.slice(i, i + CHUNK_SIZE);
-      await Promise.all(chunk.map(async (p) => {
-        // Try OSRM (Open Source Routing Machine - Open CORS, worldwide road network, real driving polylines)
-        try {
-          const url = "https://router.project-osrm.org/route/v1/driving/" + p.origin.lon + "," + p.origin.lat + ";" + p.destination.lon + "," + p.destination.lat + "?overview=full&geometries=polyline";
-          const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
-          if (r.ok) {
-            const d = await r.json();
-            if (d && d.code === "Ok" && d.routes && d.routes[0]) {
-              const rt = d.routes[0];
+  // 2. Fetch remaining legs directly from client-side OSRM routing (works on GitHub Pages & static hosts)
+  const remaining = pairsToFetch.filter(p => !handled.has(p.id));
+  const CHUNK_SIZE = 3;
+  for (let i = 0; i < remaining.length; i += CHUNK_SIZE) {
+    const chunk = remaining.slice(i, i + CHUNK_SIZE);
+    await Promise.all(chunk.map(async (p) => {
+      try {
+        const url = "https://router.project-osrm.org/route/v1/driving/" + p.origin.lon + "," + p.origin.lat + ";" + p.destination.lon + "," + p.destination.lat + "?overview=full&geometries=polyline";
+        const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (r.ok) {
+          const d = await r.json();
+          if (d && d.code === "Ok" && d.routes && d.routes[0]) {
+            const rt = d.routes[0];
+            if (rt.geometry && rt.geometry.length > 2) {
               S.routes[p.id] = {
                 roadKm: rt.distance / 1000,
                 roadMin: rt.duration / 60,
@@ -1974,9 +1945,12 @@ async function calculateRealRoutesForDate(date) {
               return;
             }
           }
-        } catch(err) {}
+        }
+      } catch (err) {}
 
-        // Smooth road-interpolated curve fallback if network temporarily fails
+      if (allowFallback) {
+        const existing = S.routes[p.id];
+        if (existing && existing.roadKm != null && existing.source === "osrm_table") return;
         const distDirect = haversine(p.origin, p.destination);
         const roadKm = distDirect * 1.35;
         const roadMin = (roadKm / 22) * 60 + 2;
@@ -2000,10 +1974,52 @@ async function calculateRealRoutesForDate(date) {
           ts: Date.now()
         };
         calculatedCount++;
-      }));
-      routeCalcProgress.done = Math.min(pairsToFetch.length, i + CHUNK_SIZE);
-    }
+      }
+    }));
+    if (onProgress) onProgress(handled.size + Math.min(remaining.length, i + CHUNK_SIZE));
   }
+
+  return calculatedCount;
+}
+
+async function ensureMapPolylinesLoaded(a) {
+  if (!a || isAutoFetchingMapPolylines || isCalculatingRoutes) return;
+  const missing = collectDateRouteLegs(a, false).filter(p => !autoPolyAttemptedKeys.has(p.id));
+  if (!missing.length) return;
+  missing.forEach(p => autoPolyAttemptedKeys.add(p.id));
+  isAutoFetchingMapPolylines = true;
+  try {
+    const updated = await fetchRoutePolylinesBatch(missing, null, false);
+    if (updated > 0) {
+      save();
+      if (tab === "map" && curDate() === a.date) render();
+    }
+  } finally {
+    isAutoFetchingMapPolylines = false;
+  }
+}
+
+async function calculateRealRoutesForDate(date) {
+  if (isCalculatingRoutes) return;
+  const a = analyze(date);
+  if (!a) { toast("ไม่มีข้อมูลแพลนในวันที่เลือก", "err"); return; }
+
+  let pairsToFetch = collectDateRouteLegs(a, false);
+  // If all pairs were already calculated with roads, re-fetch all so user can refresh routes on click
+  if (!pairsToFetch.length) pairsToFetch = collectDateRouteLegs(a, true);
+
+  if (!pairsToFetch.length) {
+    toast("ไม่มีรายการงานที่มีพิกัดต่อเนื่องกันในวันนี้", "warn");
+    return;
+  }
+
+  pairsToFetch.forEach(p => autoPolyAttemptedKeys.delete(p.id));
+  isCalculatingRoutes = true;
+  routeCalcProgress = { total: pairsToFetch.length, done: 0 };
+  render();
+  toast("🚗 กำลังคำนวณเส้นทางและเวลาตามถนนจริง " + pairsToFetch.length + " ช่วง...", "info");
+
+  const calculatedCount = await fetchRoutePolylinesBatch(pairsToFetch, done => { routeCalcProgress.done = done; }, true);
 
   save();
   toast("✓ คำนวณเส้นทางและเวลาขับขี่จริงเรียบร้อยแล้ว (" + calculatedCount + " ช่วง) เส้นทางโค้งตามแนวถนนจริง", "ok");
@@ -3002,8 +3018,9 @@ function render() {
     else if (tab === 'reset') html = viewReset();
     else html = viewPlan(a);
     $('main').innerHTML = html;
-    if (tab === 'map' && a && a.jobs.length && realMapMode === 'real') {
-      setTimeout(() => mountRealMap(a), 20);
+    if (tab === 'map' && a && a.jobs.length) {
+      if (realMapMode === 'real') setTimeout(() => mountRealMap(a), 20);
+      setTimeout(() => ensureMapPolylinesLoaded(a), 40);
     }
   } catch (err) {
     console.error('Render error:', err);
@@ -3539,6 +3556,48 @@ async function ensureGoogleMapsLoaded() {
   return gmapLoadingPromise;
 }
 
+function techHomeCoord(t) {
+  if (!t) return null;
+  const la = parseCoord(t.homeLat, 'lat'), lo = parseCoord(t.homeLon, 'lon');
+  return la.st === 'ok' && lo.st === 'ok' ? { lat: la.n, lon: lo.n } : null;
+}
+function buildTechHomePopupHtml(a, r, home) {
+  const t = r.t;
+  const off = !!(a && a.off && a.off[t.id]);
+  const locked = a && a.date ? isTechLocked(a.date, t.id) : false;
+  const pt = a && a.perTech ? a.perTech[t.id] : null;
+  const list = pt ? pt.list : [];
+  const kmInfo = a ? routeKm(a, t.id) : null;
+  const kmTxt = kmInfo ? (kmInfo.roadKm != null ? kmInfo.roadKm.toFixed(1) + ' กม. (ถนนจริง ~' + Math.round(kmInfo.roadMin) + ' น.)' : kmInfo.directKm.toFixed(1) + ' กม. (เส้นตรง)') : '-';
+  const stBadge = off ? '<span style="background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:99px;font-size:11px;font-weight:700">■ หยุดวันนี้</span>' : (locked ? '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:99px;font-size:11px;font-weight:700">🔒 ล็อกงาน</span>' : '<span style="background:#dcfce7;color:#15803d;padding:1px 6px;border-radius:99px;font-size:11px;font-weight:700">✓ ทำงาน</span>');
+  const homeZone = t.homeZone || t.zone || '-';
+  const kLim = klongLimit(t);
+  const slotSummary = list.length ? '<div style="margin-top:6px;padding:5px 7px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:11.5px;line-height:1.45"><b>งานวันนี้ (' + list.length + ' จุด):</b><br>' + list.map(e => '• S' + e.slot + ': ' + h(e.u.jobs[0].access) + ' (' + h(e.u.district || '-') + ')').join('<br>') + '</div>' : '<div style="margin-top:5px;font-size:12px;color:#64748b">ยังไม่มีงานในตารางวันนี้</div>';
+  return '<div style="font-family:sans-serif;min-width:235px;max-width:300px;padding:2px">' +
+    '<div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;flex-wrap:wrap">' +
+    '<span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:' + (r.colorHex || '#2563eb') + ';color:#fff;flex-shrink:0"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="7.5" r="4"/><path d="M5 20.5a7 7 0 0 1 14 0z"/></svg></span>' +
+    '<b style="font-size:14px;color:#0f172a">' + h(t.name) + '</b> ' + stBadge + '</div>' +
+    '<div style="font-size:12.5px;line-height:1.5;color:#334155">' +
+    '<div><b>เขตประจำ:</b> ' + h(homeZone) + '</div>' +
+    (t.picked ? '<div><b>งานแรกวันนี้:</b> เลือกเริ่มเขต ' + h(t.zone) + '</div>' : '') +
+    '<div><b>พิกัดบ้านช่าง:</b> ' + home.lat.toFixed(6) + ', ' + home.lon.toFixed(6) + '</div>' +
+    (t.line ? '<div><b>LINE:</b> ' + h(t.line) + '</div>' : '') +
+    (t.ref ? '<div><b>Ref:</b> ' + h(t.ref) + '</div>' : '') +
+    '<div><b>เงื่อนไข:</b> ' + (avoidCross(t) ? 'ไม่ข้ามเจ้าพระยา' : 'ข้ามเจ้าพระยาได้') + (kLim ? ' · ไม่รับคลอง ≥ ' + kLim : '') + '</div>' +
+    (list.length ? '<div><b>ระยะทางรวม:</b> ' + h(kmTxt) + '</div>' : '') +
+    slotSummary +
+    '<div style="margin-top:7px;padding-top:6px;border-top:1px solid #e2e8f0;text-align:right"><a href="https://www.google.com/maps?q=' + home.lat + ',' + home.lon + '" target="_blank" rel="noopener" style="font-size:12px;color:#2563eb;font-weight:600;text-decoration:none">เปิดพิกัดบ้านใน Google Maps ↗</a></div>' +
+    '</div></div>';
+}
+function showTechMapModal(tid) {
+  const d = curDate(); if (!d) return;
+  const a = analyze(d); const idx = a.techs.findIndex(x => x.id === tid);
+  if (idx === -1) return;
+  const t = a.techs[idx]; const home = techHomeCoord(t);
+  if (!home) return;
+  const r = { t, i: idx, colorHex: TECH_PALETTE[idx % TECH_PALETTE.length] };
+  openModal('<h2>👤 ข้อมูลบ้านช่าง · ' + h(t.name) + '</h2><div class="mbody">' + buildTechHomePopupHtml(a, r, home) + '</div><div class="mfoot"><button class="btn primary" data-act="closeModal">ปิด</button></div>');
+}
 function viewMap(a) {
   if (!a || !a.jobs.length) return emptyState();
   const W = 940, H = 560, M = 46;
@@ -3550,16 +3609,21 @@ function viewMap(a) {
       t, i,
       color: 'var(--s' + (i % SERIES + 1) + ')',
       colorHex,
+      home: techHomeCoord(t),
       pts: L.filter(e => e.u.coord).map(e => ({ e, lat: e.u.coord.lat, lon: e.u.coord.lon })),
       nocoord: L.filter(e => !e.u.coord).length
     };
   });
   const un = a.unassigned.concat(a.review).filter(u => u.coord);
   const all = [];
-  routes.forEach(r => r.pts.forEach(p => all.push(p)));
+  routes.forEach(r => { if (r.home && !mapHidden[r.t.id]) all.push(r.home); r.pts.forEach(p => all.push(p)); });
   un.forEach(u => all.push(u.coord));
 
   routes.forEach(r => {
+    if (!mapHidden[r.t.id] && r.home && !r.t.picked && r.pts.length) {
+      const hc = getCachedRoute(r.home, r.pts[0]);
+      if (hc && hc.polyline) decodePolyline(hc.polyline).forEach(c => all.push(c));
+    }
     for (let k = 1; k < r.pts.length; k++) {
       const cached = getCachedRoute(r.pts[k - 1], r.pts[k]);
       if (cached && cached.polyline) {
@@ -3601,8 +3665,18 @@ function viewMap(a) {
       }
     });
 
+    routes.forEach(r => {
+      if (mapHidden[r.t.id] || !r.home || r.t.picked || !r.pts.length) return;
+      const cached = getCachedRoute(r.home, r.pts[0]);
+      if (cached && cached.polyline) {
+        const roadPts = decodePolyline(cached.polyline);
+        if (roadPts.length > 1) { svg += '<polyline points="' + roadPts.map(p => X(p.lon).toFixed(1) + ',' + Y(p.lat).toFixed(1)).join(' ') + '" fill="none" stroke="' + r.color + '" stroke-width="3" stroke-dasharray="7 5" stroke-linejoin="round" opacity=".88"/>'; return; }
+      }
+      svg += '<polyline points="' + X(r.home.lon).toFixed(1) + ',' + Y(r.home.lat).toFixed(1) + ' ' + X(r.pts[0].lon).toFixed(1) + ',' + Y(r.pts[0].lat).toFixed(1) + '" fill="none" stroke="' + r.color + '" stroke-width="2" stroke-dasharray="4 5" opacity=".55"/>';
+    });
     un.forEach(u => { svg += '<g data-act="job" data-k="' + h(u.jobs[0].key) + '" class="mk"><title>' + h('ยังไม่ได้จัด: ' + u.jobs[0].access + ' ' + (u.district || '') + ' ' + (u.jobs[0].timeStr || '')) + '</title><path d="M' + (X(u.coord.lon) - 6) + ',' + (Y(u.coord.lat) - 6) + 'l12,12m0,-12l-12,12" class="mkx"/></g>'; });
     routes.forEach(r => { if (mapHidden[r.t.id]) return; r.pts.forEach((p, k) => { const x = X(p.lon), y = Y(p.lat); svg += '<g data-act="job" data-k="' + h(p.e.u.jobs[0].key) + '" class="mk"><title>' + h(r.t.name + ' · ' + cellText(p.e).replace(/\n/g, ' | ')) + '</title><circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="12" class="mkc" stroke="' + r.color + '"/><text x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle" class="mkt">S' + p.e.slot + '</text><text x="' + (x + 13).toFixed(1) + '" y="' + (y - 10).toFixed(1) + '" class="mkn" fill="' + r.color + '">#' + (r.i + 1) + '</text></g>'; }); });
+    routes.forEach(r => { if (mapHidden[r.t.id] || !r.home) return; const x = X(r.home.lon), y = Y(r.home.lat); svg += '<g data-act="techMapInfo" data-t="' + h(r.t.id) + '" class="mk"><title>' + h('บ้านช่าง: ' + r.t.name + ' (' + (r.t.homeZone || r.t.zone || '') + ')') + '</title><circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="14" fill="#fff" stroke="' + r.color + '" stroke-width="3"/><circle cx="' + x.toFixed(1) + '" cy="' + (y - 3.2).toFixed(1) + '" r="3.4" fill="' + r.color + '"/><path d="M' + (x - 5.8).toFixed(1) + ',' + (y + 7.2).toFixed(1) + 'a6,6 0 0 1 11.6,0z" fill="' + r.color + '"/></g>'; });
     svg += '<g transform="translate(' + (M - 20) + ',' + (H - 22) + ')"><line x1="0" y1="0" x2="' + km5.toFixed(1) + '" y2="0" class="scale"/><text x="0" y="-5" class="scalet">5 กม. (มาตราส่วน)</text></g><text x="' + (W - 30) + '" y="26" class="scalet" text-anchor="middle">▲ เหนือ</text></svg>';
   }
 
@@ -3668,7 +3742,7 @@ function viewMap(a) {
   return o;
 }
 
-async function mountGoogleMaps(container, allPoints, routes, unassigned) {
+async function mountGoogleMaps(container, allPoints, routes, unassigned, a) {
   const ready = await ensureGoogleMapsLoaded();
   if (!ready || !window.google || !window.google.maps) return false;
 
@@ -3721,7 +3795,46 @@ async function mountGoogleMaps(container, allPoints, routes, unassigned) {
   const infoWindow = new google.maps.InfoWindow();
 
   routes.forEach(r => {
-    if (mapHidden[r.t.id] || r.pts.length < 1) return;
+    if (mapHidden[r.t.id]) return;
+    if (r.home) {
+      bounds.extend({ lat: r.home.lat, lng: r.home.lon });
+      hasBounds = true;
+      if (!r.t.picked && r.pts.length) {
+        const hc = getCachedRoute(r.home, r.pts[0]);
+        let hPath = [{ lat: r.home.lat, lng: r.home.lon }, { lat: r.pts[0].lat, lng: r.pts[0].lon }];
+        let hReal = false;
+        if (hc && hc.polyline) {
+          const rp = decodePolyline(hc.polyline);
+          if (rp.length > 1) { hPath = rp.map(pt => ({ lat: pt.lat, lng: pt.lon })); hReal = true; }
+        }
+        hPath.forEach(pt => bounds.extend(pt));
+        const hPoly = new google.maps.Polyline({
+          path: hPath,
+          geodesic: true,
+          strokeColor: r.colorHex || '#2563eb',
+          strokeOpacity: 0,
+          strokeWeight: hReal ? 3.5 : 2.5,
+          icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: hReal ? 0.92 : 0.6, strokeWeight: hReal ? 3.5 : 2.5, scale: hReal ? 3 : 2.5 }, offset: '0', repeat: hReal ? '12px' : '10px' }],
+          map: currentGMap
+        });
+        currentGMapPolylines.push(hPoly);
+      }
+      const col = r.colorHex || '#2563eb';
+      const personSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" fill="#ffffff" stroke="' + col + '" stroke-width="3"/><circle cx="18" cy="13.5" r="4.2" fill="' + col + '"/><path d="M10.5 26.5a7.5 7.5 0 0 1 15 0z" fill="' + col + '"/></svg>';
+      const hMarker = new google.maps.Marker({
+        position: { lat: r.home.lat, lng: r.home.lon },
+        map: currentGMap,
+        title: 'บ้านช่าง: ' + r.t.name + (r.t.zone ? ' (' + r.t.zone + ')' : ''),
+        zIndex: 900,
+        icon: { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(personSvg), scaledSize: new google.maps.Size(36, 36), anchor: new google.maps.Point(18, 18) }
+      });
+      currentGMapMarkers.push(hMarker);
+      hMarker.addListener('click', () => {
+        infoWindow.setContent(buildTechHomePopupHtml(a, r, r.home));
+        infoWindow.open(currentGMap, hMarker);
+      });
+    }
+    if (r.pts.length < 1) return;
 
     if (r.pts.length > 1) {
       for (let k = 1; k < r.pts.length; k++) {
@@ -3848,7 +3961,7 @@ async function mountGoogleMaps(container, allPoints, routes, unassigned) {
   return true;
 }
 
-function mountLeafletMap(container, allPoints, routes, unassigned) {
+function mountLeafletMap(container, allPoints, routes, unassigned, a) {
   if (typeof L === 'undefined') return false;
   if (currentGMap) currentGMap = null;
   if (currentLMap) {
@@ -3880,7 +3993,40 @@ function mountLeafletMap(container, allPoints, routes, unassigned) {
   const bounds = L.latLngBounds([]);
 
   routes.forEach(r => {
-    if (mapHidden[r.t.id] || r.pts.length < 1) return;
+    if (mapHidden[r.t.id]) return;
+    if (r.home) {
+      bounds.extend([r.home.lat, r.home.lon]);
+      if (!r.t.picked && r.pts.length) {
+        const hc = getCachedRoute(r.home, r.pts[0]);
+        let hLatlngs = [[r.home.lat, r.home.lon], [r.pts[0].lat, r.pts[0].lon]];
+        let hReal = false;
+        if (hc && hc.polyline) {
+          const rp = decodePolyline(hc.polyline);
+          if (rp.length > 1) { hLatlngs = rp.map(pt => [pt.lat, pt.lon]); hReal = true; }
+        }
+        hLatlngs.forEach(pt => bounds.extend(pt));
+        const hLine = L.polyline(hLatlngs, {
+          color: r.colorHex || '#2563eb',
+          weight: hReal ? 3.8 : 2,
+          opacity: hReal ? 0.88 : 0.55,
+          dashArray: hReal ? '9, 6' : '4, 6'
+        }).addTo(map);
+        const hDistTxt = hc && hc.roadKm != null
+          ? hc.roadKm.toFixed(1) + ' กม. (~' + Math.round(hc.roadMin) + ' น. ถนนจริง)'
+          : haversine(r.home, r.pts[0]).toFixed(1) + ' กม. (เส้นตรง)';
+        hLine.bindTooltip('🏠 บ้าน ' + h(r.t.name) + ' → S' + r.pts[0].e.slot + ': ' + hDistTxt, { sticky: true });
+      }
+      const col = r.colorHex || '#2563eb';
+      const hIcon = L.divIcon({
+        className: 'leaflet-custom-tech-home',
+        html: '<div title="บ้านช่าง: ' + h(r.t.name) + '" style="position:relative;background:#fff;color:' + col + ';width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:3px solid ' + col + ';box-shadow:0 3px 8px rgba(0,0,0,0.38);"><svg width="19" height="19" viewBox="0 0 24 24" fill="' + col + '"><circle cx="12" cy="7.5" r="4"/><path d="M5 20.5a7 7 0 0 1 14 0z"/></svg><span style="position:absolute;bottom:-6px;right:-6px;background:#0f172a;color:#fff;font-size:9px;font-weight:700;padding:1px 4px;border-radius:99px;border:1.5px solid #fff;line-height:1.1">บ้าน</span></div>',
+        iconSize: [34, 34],
+        iconAnchor: [17, 17]
+      });
+      const hm = L.marker([r.home.lat, r.home.lon], { icon: hIcon, zIndexOffset: 300 }).addTo(map);
+      hm.bindPopup(buildTechHomePopupHtml(a, r, r.home), { maxWidth: 310 });
+    }
+    if (r.pts.length < 1) return;
 
     if (r.pts.length > 1) {
       for (let k = 1; k < r.pts.length; k++) {
@@ -3978,24 +4124,25 @@ async function mountRealMap(a) {
       t, i,
       color: 'var(--s' + (i % SERIES + 1) + ')',
       colorHex,
+      home: techHomeCoord(t),
       pts: L.filter(e => e.u.coord).map(e => ({ e, lat: e.u.coord.lat, lon: e.u.coord.lon })),
       nocoord: L.filter(e => !e.u.coord).length
     };
   });
   const un = a.unassigned.concat(a.review).filter(u => u.coord);
   const all = [];
-  routes.forEach(r => r.pts.forEach(p => all.push(p)));
+  routes.forEach(r => { if (r.home && !mapHidden[r.t.id]) all.push(r.home); r.pts.forEach(p => all.push(p)); });
   un.forEach(u => all.push(u.coord));
 
   try {
     if (loading) loading.style.display = 'flex';
-    let success = await mountGoogleMaps(container, all, routes, un);
+    let success = await mountGoogleMaps(container, all, routes, un, a);
     if (!success) {
-      mountLeafletMap(container, all, routes, un);
+      mountLeafletMap(container, all, routes, un, a);
     }
   } catch (err) {
     console.warn('Google Maps mounting error, fallback to Leaflet:', err);
-    mountLeafletMap(container, all, routes, un);
+    mountLeafletMap(container, all, routes, un, a);
   } finally {
     if (loading) loading.style.display = 'none';
   }
@@ -4005,7 +4152,8 @@ function fitRealMapBounds(a) {
   if (!a || !a.jobs.length) return;
   const routes = a.techs.map(t => a.perTech[t.id] ? a.perTech[t.id].list : []).flat().filter(e => e.u.coord);
   const un = a.unassigned.concat(a.review).filter(u => u.coord);
-  const all = routes.map(e => ({ lat: e.u.coord.lat, lon: e.u.coord.lon })).concat(un.map(u => ({ lat: u.coord.lat, lon: u.coord.lon })));
+  const homes = a.techs.filter(t => !mapHidden[t.id]).map(t => techHomeCoord(t)).filter(Boolean);
+  const all = routes.map(e => ({ lat: e.u.coord.lat, lon: e.u.coord.lon })).concat(un.map(u => ({ lat: u.coord.lat, lon: u.coord.lon }))).concat(homes);
   if (!all.length) return;
 
   if (currentRealMapEngine === 'google' && currentGMap && window.google && window.google.maps) {
@@ -4485,6 +4633,7 @@ const ACT = {
   pickFile: () => $('fileIn').click(),
   gotoDate: t => selectDate(t.dataset.d),
   job: (t, e) => { e.preventDefault(); jobDetail(t.dataset.k); },
+  techMapInfo: (t, e) => { e.preventDefault(); showTechMapModal(t.dataset.t); },
   copyJobText: async (t, e) => {
     e.preventDefault();
     const txt = t.dataset.copy || '';
