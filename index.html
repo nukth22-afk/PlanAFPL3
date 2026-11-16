@@ -5267,25 +5267,43 @@ function initPresenceTracker() {
       deviceId = "dev_" + Math.random().toString(36).substring(2, 9);
       localStorage.setItem("applet_device_id", deviceId);
     }
-  } catch(e) {
+  } catch (e) {
     deviceId = tabSessionId;
   }
-  try { autoLogVisitToGoogleSheet(tabSessionId, deviceId); } catch(e){}
+  try { autoLogVisitToGoogleSheet(tabSessionId, deviceId); } catch (e) {}
 
-  // Active sessions map: sessionId -> lastSeenTimestamp
-  const activeSessions = new Map();
-  activeSessions.set(tabSessionId, Date.now());
+  // Use a 150s TTL with ~20s heartbeats so Chrome/Edge background tab throttling (~60s)
+  // NEVER expires or disconnects users who keep the app open in another tab or window.
+  const HEARTBEAT_MS = 20000;
+  const SESSION_TTL_MS = 150000;
+  const isStaticHost = window.location.hostname.endsWith("github.io") || window.location.protocol === "file:";
+
+  // activeTabs: tabId -> lastSeen (local BroadcastChannel + localStorage)
+  // activeConns: connId -> { sid, ts } (global MQTT over WebSocket)
+  const activeTabs = new Map();
+  const activeConns = new Map();
+  activeTabs.set(tabSessionId, Date.now());
   let serverReportedCount = 1;
+  let lastPulseAt = 0;
 
   function recalculateCount() {
     const now = Date.now();
-    activeSessions.set(tabSessionId, now);
-    for (const [id, ts] of activeSessions.entries()) {
-      if (now - ts > 12000) {
-        activeSessions.delete(id);
-      }
+    activeTabs.set(tabSessionId, now);
+
+    for (const [id, ts] of activeTabs.entries()) {
+      if (now - ts > SESSION_TTL_MS) activeTabs.delete(id);
     }
-    const finalCount = Math.max(1, activeSessions.size, serverReportedCount);
+    for (const [cid, info] of activeConns.entries()) {
+      if (!info || now - info.ts > SESSION_TTL_MS) activeConns.delete(cid);
+    }
+
+    const uniqueSessions = new Set([tabSessionId]);
+    for (const id of activeTabs.keys()) uniqueSessions.add(id);
+    for (const info of activeConns.values()) {
+      if (info && info.sid) uniqueSessions.add(info.sid);
+    }
+
+    const finalCount = Math.max(1, uniqueSessions.size, isStaticHost ? 1 : serverReportedCount);
     window._currentOnlineUsers = finalCount;
     const el = document.getElementById("onlineUserCount");
     if (el && el.textContent !== String(finalCount)) {
@@ -5297,122 +5315,308 @@ function initPresenceTracker() {
     }
   }
 
-  // ===== Layer 1: Local Cross-Tab Sync (BroadcastChannel) =====
+  // ===== Layer 1: Local Cross-Tab Sync (BroadcastChannel + localStorage) =====
+  const LS_TABS_KEY = "planafp_presence_tabs_v2";
+  function syncLocalStorageTabs(leaving) {
+    try {
+      const now = Date.now();
+      let map = {};
+      try { map = JSON.parse(localStorage.getItem(LS_TABS_KEY) || "{}") || {}; } catch (e) { map = {}; }
+      if (leaving) {
+        delete map[tabSessionId];
+      } else {
+        map[tabSessionId] = now;
+      }
+      Object.keys(map).forEach(id => {
+        if (now - map[id] > SESSION_TTL_MS) {
+          delete map[id];
+        } else if (id !== tabSessionId) {
+          const prev = activeTabs.get(id) || 0;
+          if (map[id] > prev) activeTabs.set(id, map[id]);
+        }
+      });
+      localStorage.setItem(LS_TABS_KEY, JSON.stringify(map));
+    } catch (e) {}
+  }
+
   let bc = null;
   try {
     if ("BroadcastChannel" in window) {
-      bc = new BroadcastChannel("planafp_presence_channel_v1");
+      bc = new BroadcastChannel("planafp_presence_channel_v2");
       bc.onmessage = function(e) {
         const d = e.data;
         if (!d || !d.id || d.id === tabSessionId) return;
         if (d.type === "leave") {
-          activeSessions.delete(d.id);
+          activeTabs.delete(d.id);
         } else {
-          activeSessions.set(d.id, Date.now());
+          activeTabs.set(d.id, Date.now());
         }
         recalculateCount();
       };
     }
-  } catch(e){}
+  } catch (e) {}
+
+  window.addEventListener("storage", function(e) {
+    if (e.key === LS_TABS_KEY && e.newValue) {
+      try {
+        const map = JSON.parse(e.newValue) || {};
+        const now = Date.now();
+        Object.keys(map).forEach(id => {
+          if (id !== tabSessionId && now - map[id] <= SESSION_TTL_MS) {
+            activeTabs.set(id, Math.max(activeTabs.get(id) || 0, map[id]));
+          }
+        });
+        recalculateCount();
+      } catch (err) {}
+    }
+  });
 
   function broadcastLocal(type) {
+    syncLocalStorageTabs(type === "leave");
     if (bc) {
       try {
         bc.postMessage({ id: tabSessionId, dev: deviceId, type: type, ts: Date.now() });
-      } catch(e){}
+      } catch (e) {}
     }
   }
 
   // ===== Layer 2: Global Real-Time MQTT over WebSocket (Works across devices on GitHub Pages) =====
-  const MQTT_TOPIC = "planafp/presence/live_hub_v1";
+  // Always converge on PRIMARY_BROKER so users don't get permanently split across unconnected brokers.
+  const MQTT_PREFIX = "planafp/presence/v2/";
+  const MQTT_CTRL_TOPIC = "planafp/presence/v2/_ctrl";
+  const PRIMARY_BROKER = { host: "broker.emqx.io", port: 8084, path: "/mqtt" };
+  const BACKUP_BROKER = { host: "broker.hivemq.com", port: 8884, path: "/mqtt" };
+
   let mqttClient = null;
   let mqttConnected = false;
-  const BROKER_SERVERS = [
-    { host: "broker.emqx.io", port: 8084, path: "/mqtt" },
-    { host: "broker.hivemq.com", port: 8884, path: "/mqtt" }
-  ];
-  let currentBrokerIndex = 0;
+  let mqttConnecting = false;
+  let mqttConnSeq = 0;
+  let currentConnId = "";
+  let primaryFailStreak = 0;
+  let usingBackupSince = 0;
+      publishRetainedLeave();
+  let mqttReconnectTimer = null;
+  let whoReplyTimer = null;
+
+  function isMqttAlive() {
+    if (!mqttClient || !mqttConnected) return false;
+    try {
+      if (typeof mqttClient.isConnected === "function") return mqttClient.isConnected();
+    } catch (e) {}
+    return true;
+  }
+
+  function scheduleReconnect(delayMs) {
+    if (mqttReconnectTimer) return;
+    mqttReconnectTimer = setTimeout(function() {
+      mqttReconnectTimer = null;
+      initMqtt();
+    }, delayMs);
+  }
+
+  function getPahoClientCtor() {
+    if (typeof Paho === "undefined") return null;
+    return Paho.Client || (Paho.MQTT && Paho.MQTT.Client) || null;
+  }
+
+  function publishRetainedPing() {
+    if (!isMqttAlive() || !currentConnId) return;
+    try {
+      const payload = JSON.stringify({ id: tabSessionId, cid: currentConnId, dev: deviceId, ts: Date.now() });
+      const m = new Paho.Message(payload);
+      m.destinationName = MQTT_PREFIX + currentConnId;
+      m.qos = 0;
+      m.retained = true;
+      mqttClient.send(m);
+    } catch (e) {}
+  }
+
+  function publishWhoQuery() {
+    if (!isMqttAlive()) return;
+    try {
+      const payload = JSON.stringify({ id: tabSessionId, type: "who", ts: Date.now() });
+      const m = new Paho.Message(payload);
+      m.destinationName = MQTT_CTRL_TOPIC;
+      m.qos = 0;
+      m.retained = false;
+      mqttClient.send(m);
+    } catch (e) {}
+  }
+
+  function publishRetainedLeave() {
+    if (!isMqttAlive() || !currentConnId) return;
+    try {
+      const m = new Paho.Message("");
+      m.destinationName = MQTT_PREFIX + currentConnId;
+      m.qos = 0;
+      m.retained = true;
+      mqttClient.send(m);
+    } catch (e) {}
+  }
 
   function initMqtt() {
-    if (typeof Paho === "undefined" || !Paho.Client) {
+    if (mqttConnecting || isMqttAlive()) return;
+    const PahoClient = getPahoClientCtor();
+    if (!PahoClient) {
       if (!window.__pahoLoading) {
         window.__pahoLoading = true;
         try {
           const s = document.createElement("script");
-          s.src = "https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js";
-          s.onload = function() { setTimeout(initMqtt, 100); };
+          s.src = "paho-mqtt.min.js";
+          s.onload = function() { window.__pahoLoading = false; scheduleReconnect(100); };
+          s.onerror = function() {
+            const s2 = document.createElement("script");
+            s2.src = "https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js";
+            s2.onload = function() { window.__pahoLoading = false; scheduleReconnect(100); };
+            document.head.appendChild(s2);
+          };
           document.head.appendChild(s);
-        } catch(e){}
+        } catch (e) {}
       }
-      setTimeout(initMqtt, 1000);
+      scheduleReconnect(1200);
       return;
     }
-    const broker = BROKER_SERVERS[currentBrokerIndex % BROKER_SERVERS.length];
+
+    if (mqttReconnectTimer) {
+      clearTimeout(mqttReconnectTimer);
+      mqttReconnectTimer = null;
+    }
+
+    // Safely tear down any previous stale client before creating a new one
+    if (mqttClient) {
+      try {
+        mqttClient.onConnectionLost = null;
+        mqttClient.onMessageArrived = null;
+        if (typeof mqttClient.isConnected === "function" && mqttClient.isConnected()) {
+          mqttClient.disconnect();
+        }
+      } catch (e) {}
+      mqttClient = null;
+      mqttConnected = false;
+    }
+
+    const useBackup = primaryFailStreak >= 3;
+    const broker = useBackup ? BACKUP_BROKER : PRIMARY_BROKER;
+    if (useBackup && !usingBackupSince) usingBackupSince = Date.now();
+    if (!useBackup) usingBackupSince = 0;
+
+    mqttConnecting = true;
+    const seq = ++mqttConnSeq;
+    const connId = tabSessionId + "_" + seq;
+    currentConnId = connId;
+
     try {
-      mqttClient = new Paho.Client(broker.host, broker.port, broker.path, "afp_" + tabSessionId);
-      mqttClient.onConnectionLost = function(resp) {
+      const client = new PahoClient(broker.host, broker.port, broker.path, "afp_" + connId);
+      mqttClient = client;
+
+      client.onConnectionLost = function() {
+        if (seq !== mqttConnSeq) return;
         mqttConnected = false;
-        currentBrokerIndex++;
-        setTimeout(initMqtt, 3000);
+        mqttConnecting = false;
+        const waitMs = Math.min(15000, 2000 * Math.pow(1.6, Math.min(primaryFailStreak, 4)));
+        scheduleReconnect(waitMs);
       };
-      mqttClient.onMessageArrived = function(msg) {
+
+      client.onMessageArrived = function(msg) {
+        if (seq !== mqttConnSeq) return;
         try {
-          const data = JSON.parse(msg.payloadString);
-          if (data && data.id && data.id !== tabSessionId) {
-            if (data.type === "leave") {
-              activeSessions.delete(data.id);
-            } else {
-              activeSessions.set(data.id, Date.now());
+          const topic = msg.destinationName || "";
+          const raw = msg.payloadString || "";
+
+          if (topic === MQTT_CTRL_TOPIC) {
+            const ctrl = JSON.parse(raw);
+            if (ctrl && ctrl.type === "who" && ctrl.id && ctrl.id !== tabSessionId) {
+              if (whoReplyTimer) clearTimeout(whoReplyTimer);
+              whoReplyTimer = setTimeout(function() {
+                whoReplyTimer = null;
+                publishRetainedPing();
+              }, 120 + Math.floor(Math.random() * 350));
             }
-            recalculateCount();
+            return;
           }
-        } catch(e){}
+
+          if (!topic.startsWith(MQTT_PREFIX)) return;
+          const topicCid = topic.slice(MQTT_PREFIX.length);
+          if (!topicCid || topicCid === "_ctrl" || topicCid === currentConnId) return;
+
+          // Empty retained payload means session left or LWT fired
+          if (!raw) {
+            if (activeConns.delete(topicCid)) recalculateCount();
+            return;
+          }
+
+          const data = JSON.parse(raw);
+          if (!data || !data.id || data.id === tabSessionId) return;
+
+          if (data.type === "leave") {
+            if (activeConns.delete(topicCid)) recalculateCount();
+            return;
+          }
+
+          // Guard against ancient orphaned retained messages on public brokers (if clock is within 5m);
+          // active peers also answer our "who" query with live (!msg.retained) pings so clock skew never drops them.
+          if (msg.retained && typeof data.ts === "number" && Math.abs(Date.now() - data.ts) > 300000) {
+            return;
+          }
+
+          activeConns.set(topicCid, { sid: data.id, ts: Date.now() });
+          recalculateCount();
+        } catch (e) {}
       };
 
-      const willMsg = new Paho.Message(JSON.stringify({ id: tabSessionId, type: "leave" }));
-      willMsg.destinationName = MQTT_TOPIC;
+      // Last Will clears this connection's retained topic automatically on abrupt disconnect
+      const willMsg = new Paho.Message("");
+      willMsg.destinationName = MQTT_PREFIX + connId;
       willMsg.qos = 0;
+      willMsg.retained = true;
 
-      mqttClient.connect({
+      client.connect({
         useSSL: true,
-        timeout: 5,
-        keepAliveInterval: 20,
+        timeout: 10,
+        keepAliveInterval: 120,
         cleanSession: true,
         willMessage: willMsg,
         onSuccess: function() {
+          if (seq !== mqttConnSeq) {
+            try { client.disconnect(); } catch (e) {}
+            return;
+          }
+          mqttConnecting = false;
           mqttConnected = true;
+          if (!useBackup) primaryFailStreak = 0;
           try {
-            mqttClient.subscribe(MQTT_TOPIC);
-            publishMqtt("ping");
-          } catch(e){}
+            client.subscribe(MQTT_PREFIX + "+");
+            publishRetainedPing();
+            publishWhoQuery();
+            setTimeout(function() {
+              if (seq === mqttConnSeq && isMqttAlive()) publishRetainedPing();
+            }, 2000);
+          } catch (e) {}
         },
         onFailure: function() {
+          if (seq !== mqttConnSeq) return;
+          mqttConnecting = false;
           mqttConnected = false;
-          currentBrokerIndex++;
-          setTimeout(initMqtt, 3500);
+          if (!useBackup) {
+            primaryFailStreak++;
+          } else {
+            primaryFailStreak = 0; // cycle back to try canonical primary
+          }
+          const waitMs = Math.min(15000, 2000 * Math.pow(1.6, Math.min(primaryFailStreak, 4)));
+          scheduleReconnect(waitMs);
         }
       });
-    } catch(err) {
-      currentBrokerIndex++;
-      setTimeout(initMqtt, 4000);
+    } catch (err) {
+      mqttConnecting = false;
+      mqttConnected = false;
+      primaryFailStreak++;
+      scheduleReconnect(4000);
     }
   }
 
-  function publishMqtt(type) {
-    if (mqttClient && mqttConnected) {
-      try {
-        const payload = JSON.stringify({ id: tabSessionId, dev: deviceId, type: type, ts: Date.now() });
-        const m = new Paho.Message(payload);
-        m.destinationName = MQTT_TOPIC;
-        m.qos = 0;
-        mqttClient.send(m);
-      } catch(e){}
-    }
-  }
-
-  // ===== Layer 3: Backend Heartbeat (Local dev / Cloud Run) =====
+  // ===== Layer 3: Backend Heartbeat + SSE (Local dev / Cloud Run) =====
   function pingBackend() {
-    if (window.location.hostname.endsWith("github.io") || window.location.protocol === "file:") return;
+    if (isStaticHost) return;
     fetch("/api/presence/heartbeat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -5428,38 +5632,91 @@ function initPresenceTracker() {
     .catch(() => {});
   }
 
-  // Pulse & Heartbeat cycle
-  function pulse() {
+  if (!isStaticHost && typeof EventSource !== "undefined") {
+    try {
+      const es = new EventSource("/api/presence/stream?sessionId=" + encodeURIComponent(tabSessionId));
+      es.onmessage = function(ev) {
+        try {
+          const d = JSON.parse(ev.data);
+          if (d && d.type === "presence" && typeof d.count === "number") {
+            serverReportedCount = d.count;
+            recalculateCount();
+          }
+        } catch (e) {}
+      };
+    } catch (e) {}
+  }
+
+  // Pulse & Heartbeat cycle (debounced so Worker + fallback timer never double-send)
+  function pulse(force) {
+    const now = Date.now();
+    if (!force && now - lastPulseAt < 10000) {
+      recalculateCount();
+      return;
+    }
+    lastPulseAt = now;
+
+    // If temporarily on backup broker for > 2 min, converge back onto PRIMARY_BROKER
+    if (usingBackupSince && now - usingBackupSince > 120000 && !mqttConnecting) {
+      primaryFailStreak = 0;
+      usingBackupSince = 0;
+      try { if (mqttClient && isMqttAlive()) mqttClient.disconnect(); } catch (e) {}
+      mqttConnected = false;
+      initMqtt();
+    } else if (!isMqttAlive() && !mqttConnecting && !mqttReconnectTimer) {
+      scheduleReconnect(200);
+    }
+
     broadcastLocal("ping");
-    publishMqtt("ping");
+    publishRetainedPing();
     pingBackend();
     recalculateCount();
   }
 
+  // Web Worker timer reduces background throttling when user leaves tab open behind other windows
+  let hbWorker = null;
+  try {
+    if (typeof Worker !== "undefined" && typeof Blob !== "undefined") {
+      const wBlob = new Blob(["setInterval(function(){postMessage(1);}, " + HEARTBEAT_MS + ");"], { type: "application/javascript" });
+      const wUrl = URL.createObjectURL(wBlob);
+      hbWorker = new Worker(wUrl);
+      hbWorker.onmessage = function() { pulse(false); };
+      URL.revokeObjectURL(wUrl);
+    }
+  } catch (e) { hbWorker = null; }
+
   // Start connections
   initMqtt();
-  pulse();
-  setInterval(pulse, 3500);
+  pulse(true);
+  setInterval(function() { pulse(false); }, 25000);
 
   // Send leave notifications on tab / browser close
   function handleLeave() {
     try {
       broadcastLocal("leave");
-      publishMqtt("leave");
-      if (!window.location.hostname.endsWith("github.io") && window.location.protocol !== "file:" && navigator.sendBeacon) {
+      publishRetainedLeave();
+      if (hbWorker) { try { hbWorker.terminate(); } catch (e) {} hbWorker = null; }
+      if (!isStaticHost && navigator.sendBeacon) {
         navigator.sendBeacon("/api/presence/leave", JSON.stringify({ sessionId: tabSessionId }));
       }
-    } catch(e){}
+    } catch (e) {}
   }
 
   window.addEventListener("beforeunload", handleLeave);
   window.addEventListener("pagehide", handleLeave);
 
-  // Re-sync immediately when tab is switched back to
-  document.addEventListener("visibilitychange", () => {
+  // Re-sync and heal connection immediately when tab becomes visible, focused, or network returns
+  document.addEventListener("visibilitychange", function() {
     if (!document.hidden) {
-      pulse();
+      if (!isMqttAlive() && !mqttConnecting) scheduleReconnect(50);
+      pulse(true);
     }
+  });
+  window.addEventListener("focus", function() { pulse(true); });
+  window.addEventListener("online", function() {
+    primaryFailStreak = 0;
+    if (!isMqttAlive() && !mqttConnecting) scheduleReconnect(50);
+    pulse(true);
   });
 }
 

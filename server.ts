@@ -350,7 +350,7 @@ interface ActiveSession {
 }
 
 const activeSessions = new Map<string, ActiveSession>();
-const SESSION_TTL_MS = 15000; // 15 seconds sliding window
+const SESSION_TTL_MS = 150000; // 150 seconds sliding window (survives background tab throttling)
 
 function getActiveUserCount(): number {
   const now = Date.now();
