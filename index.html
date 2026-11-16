@@ -4068,6 +4068,7 @@ function jobDetail(key) {
 
 let cpCtx = null;
 let dblCtx = null;
+let rmCtx = null;
 let modalRouteToken = 0;
 
 function cellPickContinuousMetrics(t, slot, prev, next, u) {
@@ -4264,6 +4265,47 @@ function afterAssign(date, key, res) {
   if (bad && bad.length) toast('จัดแล้ว แต่มีคำเตือน: ' + bad[0].m, bad.some(m => m.lv === 'risk') ? 'err' : 'warn'); else toast('จัดงานเรียบร้อย', 'ok');
 }
 
+function renderRemoveSuggestList(ctx) {
+  const { tech, slot, a, cands, loading } = ctx;
+  if (!cands.length) return '<p class="muted">ไม่พบงานที่ยังไม่จัดซึ่งเวลานัดตรง Slot ' + slot + ' และใกล้เส้นทางของ ' + h(a.techById[tech].name) + ' ที่เดินทางทันตามเกณฑ์ ช่องนี้จึงว่างไว้</p>';
+  const t = a.techById[tech];
+  const list = a.perTech[tech].list;
+  const prev = list.filter(e => e.slot < slot).pop(), next = list.find(e => e.slot > slot);
+  const rows = cands.map(u => {
+    const cm = cellPickContinuousMetrics(t, slot, prev, next, u);
+    return { u, cm, d: cm.totalKm };
+  }).sort((x, y) => ((x.d == null) - (y.d == null)) || (x.d - y.d)).slice(0, 8);
+  return rows.map(r => '<div class="pickrow"><code>' + h(cellText({ slot, u: r.u })) + '</code> ' + fmtContinuousLegsHtml(r.cm, loading) + ' <button class="btn small primary" data-act="fillPick" data-k="' + h(r.u.jobs[0].key) + '" data-t="' + h(tech) + '" data-s="' + slot + '">จัดงานนี้</button></div>').join('');
+}
+async function loadRemoveSuggestRealRoutes(ctx) {
+  const { tech, slot, a, cands, token } = ctx;
+  if (!cands.length) return;
+  const t = a.techById[tech];
+  const list = a.perTech[tech].list;
+  const prev = list.filter(e => e.slot < slot).pop(), next = list.find(e => e.slot > slot);
+  const zRef = (!prev && !next) ? zoneRef(t) : null;
+  const pairs = [];
+  cands.forEach(u => {
+    if (!u || !u.coord) return;
+    if (prev && prev.u.coord) pairs.push({ origin: prev.u.coord, destination: u.coord });
+    if (next && next.u.coord) pairs.push({ origin: u.coord, destination: next.u.coord });
+    if (!prev && !next && zRef) pairs.push({ origin: zRef, destination: u.coord });
+  });
+  try {
+    if (pairs.length) await fetchRealRoadMatrix(pairs);
+  } catch (e) {}
+  if ($('modal').hidden || !rmCtx || rmCtx.token !== token) return;
+  rmCtx.loading = false;
+  const allReal = cands.filter(u => u && u.coord).every(u => cellPickContinuousMetrics(t, slot, prev, next, u).allReal);
+  const stEl = $('rmStatus');
+  if (stEl) {
+    stEl.innerHTML = allReal
+      ? '<span class="pill ok">✓ คำนวณระยะทางขับรถจริงตามแผนที่แล้ว (' + cands.length + ' งาน)</span>'
+      : '<span class="pill warn">คำนวณระยะทางจริงเสร็จสิ้น (บางช่วงใช้ระยะประมาณเนื่องจากบริการเส้นทางไม่ตอบสนอง)</span>';
+  }
+  const listEl = $('rmList');
+  if (listEl) listEl.innerHTML = renderRemoveSuggestList(rmCtx);
+}
 function removeWithSuggest(date, key, single) {
   const a0 = analyze(date); const en = a0.entries.find(x => x.u.jobs.some(j => j.key === key));
   const tech = en ? en.tech : null, slot = en ? en.slot : null;
@@ -4281,12 +4323,19 @@ function removeWithSuggest(date, key, single) {
     if (techCost(t, items.concat([{ u, slot, fixed: false }])) === Infinity) return;
     const ds = [prev, next].filter(Boolean).filter(e => e.u.coord).map(e => haversine(u.coord, e.u.coord));
     const ref = ds.length ? Math.min.apply(null, ds) : zoneDist(t, u);
-    cands.push({ u, d: ref, vs: ds.length ? (prev && next ? 'งานก่อน/หลัง' : prev ? 'งานก่อนหน้า' : 'งานถัดไป') : 'เขตเริ่มงาน ' + t.zone });
+    cands.push({ u, d: ref });
   });
   cands.sort((x, y) => (x.d == null) - (y.d == null) || x.d - y.d);
-  const top = cands.slice(0, 5);
-  const body = top.length ? '<p class="muted">ช่อง <b>' + h(t.name) + ' Slot ' + slot + '</b> ว่างแล้ว งานที่ยังไม่จัด เวลานัดตรงกับ Slot นี้ และใกล้เส้นทางของช่าง (ระยะเส้นตรง ไม่ใช่ระยะถนน ไม่เปลี่ยนเวลานัดลูกค้า):</p><ul class="why">' + top.map(c => '<li><code>' + h(cellText({ slot, u: c.u })) + '</code> ห่าง' + h(c.vs) + ' ~' + (c.d != null ? c.d.toFixed(1) : '?') + ' กม. <button class="btn small primary" data-act="fillPick" data-k="' + h(c.u.jobs[0].key) + '" data-t="' + h(tech) + '" data-s="' + slot + '">จัดงานนี้</button></li>').join('') + '</ul>' : '<p class="muted">ไม่พบงานที่ยังไม่จัดซึ่งเวลานัดตรง Slot ' + slot + ' และใกล้เส้นทางของ ' + h(t.name) + ' ที่เดินทางทันตามเกณฑ์ ช่องนี้จึงว่างไว้</p>';
+  const candUnits = cands.slice(0, 20).map(x => x.u);
+  rmCtx = { tech, slot, a, cands: candUnits, loading: candUnits.length > 0, token: ++modalRouteToken };
+  const statusHtml = candUnits.length
+    ? '<div id="rmStatus" style="margin:6px 0 8px"><span class="pill info">⏳ กำลังคำนวณระยะทางขับรถจริงตามแผนที่ (' + candUnits.length + ' งาน)...</span></div>'
+    : '';
+  const body = candUnits.length
+    ? '<p class="muted">ช่อง <b>' + h(t.name) + ' Slot ' + slot + '</b> ว่างแล้ว แสดงงานที่ยังไม่จัด เวลานัดตรงกับ Slot นี้ เรียงตามระยะทางขับรถจริงบนแผนที่จากงานต่อเนื่องในแพลน (ไม่เปลี่ยนเวลานัดลูกค้า):</p>' + statusHtml + '<div id="rmList">' + renderRemoveSuggestList(rmCtx) + '</div>'
+    : '<p class="muted">ไม่พบงานที่ยังไม่จัดซึ่งเวลานัดตรง Slot ' + slot + ' และใกล้เส้นทางของ ' + h(t.name) + ' ที่เดินทางทันตามเกณฑ์ ช่องนี้จึงว่างไว้</p>';
   ask('เสนองานใกล้เคียงมาแทน', body, [{ label: 'ปิด', fn: closeModal }]);
+  if (candUnits.length) loadRemoveSuggestRealRoutes(rmCtx);
 }
 function tryAssign(key, techId, slot) {
   const date = S.jobs[key].date || curDate();
