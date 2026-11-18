@@ -336,6 +336,35 @@ tr.lockedrow td.zone, tr.lockedrow td.num { background: #f7fbf8 !important; }
 .chip.chip-locked .ct { color: #ffffff !important; font-weight: 600; }
 .chip.chip-locked .tag { background: rgba(15, 23, 42, 0.45) !important; color: #f1f5f9 !important; border-color: rgba(255, 255, 255, 0.25) !important; }
 .chip.chip-locked .tag-locked { background: #0f172a !important; color: #fef08a !important; font-weight: 700 !important; border: 1px solid #ca8a04 !important; }
+.chip.card-locked {
+  border-width: 1.5px !important;
+  border-color: #d97706 !important;
+  box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.2), 0 1px 3px rgba(15, 23, 42, 0.1) !important;
+  cursor: not-allowed !important;
+}
+.chip.card-locked:hover { transform: none; }
+.chip-lock-btn {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 6px; border: 1px solid transparent; cursor: pointer; z-index: 2;
+  transition: transform .12s ease, background-color .14s ease, border-color .14s ease, color .14s ease, opacity .14s ease;
+}
+.chip-lock-btn.is-unlocked {
+  background: rgba(255, 255, 255, 0.72); border-color: rgba(148, 163, 184, 0.45); color: #64748b;
+}
+.chip-lock-btn.is-unlocked:hover, .chip-lock-btn.is-unlocked:focus-visible {
+  background: #ffffff; border-color: #64748b; color: #0f172a; transform: scale(1.07);
+}
+.chip-lock-btn.is-locked {
+  background: #fef3c7; border-color: #d97706; color: #b45309;
+  box-shadow: 0 1px 2px rgba(180, 83, 9, 0.18);
+}
+.chip-lock-btn.is-locked:hover, .chip-lock-btn.is-locked:focus-visible {
+  background: #fde68a; border-color: #b45309; color: #78350f; transform: scale(1.07);
+}
+.chip.chip-locked .chip-lock-btn.is-locked {
+  background: #0f172a; border-color: #ca8a04; color: #fef08a; cursor: not-allowed; transform: none;
+}
 .slot-locked-ind {
   display: flex; align-items: center; justify-content: center; min-height: 50px;
   border: 1px dashed #cbd5e1; border-radius: 8px; color: #64748b; font-size: 11.5px; font-weight: 600;
@@ -508,7 +537,8 @@ td.slot.over { outline: 3px dashed #6366f1; outline-offset: -4px; background: #e
 
 /* Job Chips */
 .chip {
-  display: flex; gap: 5px; border: 1px solid; border-radius: 8px; padding: 6px 8px;
+  position: relative;
+  display: flex; gap: 5px; border: 1px solid; border-radius: 8px; padding: 6px 32px 6px 8px;
   margin-bottom: 5px; cursor: grab; font-size: 11.5px; line-height: 1.4;
   align-items: flex-start; flex-wrap: wrap; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
   transition: transform .14s ease, box-shadow .14s ease, border-color .14s ease;
@@ -2467,6 +2497,26 @@ function optimize(cands, techs, fixedByTech, seed) {
 function ensurePlan(date) { if (!S.plans[date]) S.plans[date] = { status: 'draft', assign: {}, removed: {}, proposal: {}, log: [], confirmedAt: null, lastRun: null, techLock: {} }; if (!S.plans[date].techLock) S.plans[date].techLock = {}; return S.plans[date]; }
 const isTechLocked = (date, id) => !!((S.plans[date] || {}).techLock || {})[id];
 function toggleTechLock(date, id) { const p = ensurePlan(date); const on = !p.techLock[id]; if (on) p.techLock[id] = true; else delete p.techLock[id]; const t = S.techs.find(x => x.id === id); logPlan(date, (on ? 'ล็อกงานช่าง ' : 'ปลดล็อกงานช่าง ') + (t ? t.name : id)); return on; }
+function isCardLocked(date, key) {
+  const p = S.plans[date]; if (!p || !p.assign) return false;
+  if (p.assign[key] && p.assign[key].locked) return true;
+  const u = unitOf(date, key);
+  return !!(u && u.jobs.some(j => p.assign[j.key] && p.assign[j.key].locked));
+}
+function toggleCardLock(date, key) {
+  const p = ensurePlan(date);
+  if (isFrozen(p)) return { err: 'แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน' };
+  const asg = p.assign && p.assign[key];
+  if (!asg) return { err: 'ไม่พบการ์ดงานในแพลน' };
+  if (asg.tech && isTechLocked(date, asg.tech)) return { err: 'ช่างคนนี้ถูกล็อกทั้งแถวอยู่ (🔒) กรุณาปลดล็อกที่แถวช่างก่อน' };
+  const u = unitOf(date, key);
+  const keys = u ? u.jobs.map(j => j.key).filter(k => p.assign[k]) : [key];
+  const on = !keys.some(k => p.assign[k] && p.assign[k].locked);
+  keys.forEach(k => { if (on) p.assign[k].locked = true; else delete p.assign[k].locked; });
+  logPlan(date, (on ? 'ล็อกการ์ดงาน ' : 'ปลดล็อกการ์ดงาน ') + (u ? u.jobs.map(j => j.access).join(',') : key));
+  save();
+  return { ok: true, locked: on };
+}
 const isFrozen = p => p && (p.status === 'confirmed' || p.status === 'revised');
 function logPlan(date, text) { const p = ensurePlan(date); p.log.push({ ts: Date.now(), text }); if (p.log.length > 300) p.log.shift(); }
 function techsEff(date) { const pk = (S.startPick && S.startPick[date]) || {}; return S.techs.map(t => (pk[t.id] && DISTRICTS[pk[t.id]]) ? Object.assign({}, t, { zone: pk[t.id], homeZone: t.zone, picked: true }) : t); }
@@ -2486,7 +2536,7 @@ function replan(date, why) {
   Object.keys(plan.assign).forEach(k => { if (!availIds.has(plan.assign[k].tech)) { delete plan.assign[k]; dropped++; } });
   if (dropped) logPlan(date, 'นำงาน ' + dropped + ' ใบออกจากช่างที่หยุด/ปิดใช้งาน');
   const before = {}; Object.keys(plan.assign).forEach(k => before[k] = plan.assign[k].tech);
-  if (!frozen) Object.keys(plan.assign).forEach(k => { if (!plan.assign[k].manual && !lockMap[plan.assign[k].tech]) delete plan.assign[k]; });
+  if (!frozen) Object.keys(plan.assign).forEach(k => { if (!plan.assign[k].manual && !lockMap[plan.assign[k].tech] && !plan.assign[k].locked) delete plan.assign[k]; });
   const units = buildUnits(jobsD);
   const fixedByTech = avail.map(t => []);
   const cands = [];
@@ -2533,7 +2583,8 @@ function analyze(date) {
     const a = unitAsg(plan, u);
     u.asg = a;
     if (a && techById[a.tech] && !off[a.tech]) {
-      const e = { u, tech: a.tech, slot: a.slot, manual: !!a.manual, double: !!a.double, level: 'ok', msgs: [] };
+      const cardLocked = u.jobs.some(j => !!(plan && plan.assign && plan.assign[j.key] && plan.assign[j.key].locked));
+      const e = { u, tech: a.tech, slot: a.slot, manual: !!a.manual, double: !!a.double, cardLocked, level: 'ok', msgs: [] };
       cells[a.tech][a.slot].push(e); entries.push(e);
     } else {
       u.removedByUser = unitRemoved(plan, u);
@@ -2585,6 +2636,7 @@ function analyze(date) {
     if (u.jobs.some(j => j.lockedTech && excludeReasonRaw(j))) bump(e, 'warn', 'งานนี้ล็อกมาจากไฟล์แพลนเดิม แต่ตรงเงื่อนไขที่ไม่เอา (Title/แพ็กเกจ/จังหวัด) ตรวจสอบแล้วนำออกได้');
     if (u.jobs.some(j => j.impact)) bump(e, 'warn', 'ข้อมูลใบงานเปลี่ยนหลังยืนยัน ต้องตรวจสอบช่าง/เวลา/เส้นทาง');
     if (u.bundled) e.msgs.push({ lv: 'info', m: 'Bundled Visit: ' + u.jobs.length + ' ใบงานที่จุดเดียวกัน' });
+    if (e.cardLocked) e.msgs.push({ lv: 'info', m: '🔒 ล็อกการ์ดงานนี้แล้ว (ไม่ถูกจัดใหม่หรือโยกย้าย)' });
     if (e.manual) e.msgs.push({ lv: 'info', m: 'Manual Override (ผู้ใช้จัดเอง)' });
   });
   // เหตุผลของงานที่จัดไม่ได้ + ข้อเสนอ Double-Up
@@ -2673,6 +2725,9 @@ function assignUnit(date, key, techId, slot, opts) {
     const ct = S.techs.find(x => x.id === curAsg.tech);
     return { err: 'งานนี้จัดอยู่กับ ' + (ct ? ct.name : curAsg.tech) + ' ซึ่งถูกล็อกงานแล้ว (🔒) ไม่สามารถย้ายได้ กรุณาปลดล็อกก่อน' };
   }
+  if (isCardLocked(date, key)) {
+    return { err: 'การ์ดงานนี้ถูกล็อกอยู่ (🔒) กรุณาปลดล็อกที่มุมขวาบนของการ์ดก่อนย้ายงาน' };
+  }
   const a = analyze(date);
   const occ = a.cells[techId][slot].filter(e => e.u.key !== u.key);
   if (occ.length && !opts.double) return { needDouble: true, occ };
@@ -2682,40 +2737,51 @@ function assignUnit(date, key, techId, slot, opts) {
   logPlan(date, 'ผู้ใช้จัด ' + u.jobs.map(j => j.access).join(',') + ' → ' + t.name + ' Slot ' + slot + (occ.length ? ' (Double-Up)' : ''));
   markEdited(date); return { ok: true };
 }
-function clearTech(date, techId) { // ล้างแพลนของช่างรายคน: นำงานทั้งหมดของช่างคนนี้ออก (ขึ้นเป็นรายการ "นำออก" กดนำกลับได้ และย้อนกลับได้)
+function clearTech(date, techId) { // ล้างแพลนของช่างรายคน: นำงานที่ไม่ได้ล็อกของช่างคนนี้ออก (งานที่ล็อกไว้จะคงอยู่)
   if (isTechLocked(date, techId)) { toast('ช่างคนนี้ถูกล็อกงานอยู่ (🔒) ปลดล็อกก่อนจึงจะล้างแพลนได้', 'err'); return 0; }
-  const plan = ensurePlan(date); const keys = Object.keys(plan.assign).filter(k => plan.assign[k].tech === techId);
-  if (!keys.length) return 0;
+  const plan = ensurePlan(date);
+  const allKeys = Object.keys(plan.assign).filter(k => plan.assign[k].tech === techId);
+  const keys = allKeys.filter(k => !plan.assign[k].locked);
+  if (!keys.length) { if (allKeys.length) toast('งานทั้งหมดของช่างคนนี้ถูกล็อกอยู่ (🔒) ปลดล็อกก่อนจึงจะล้างได้', 'err'); return 0; }
   const t = S.techs.find(x => x.id === techId);
   pushUndo(date, 'ล้างแพลน ' + (t ? t.name : techId));
   keys.forEach(k => { const pv = plan.assign[k]; delete plan.assign[k]; plan.removed[k] = { tech: pv.tech, slot: pv.slot, ts: Date.now() }; });
-  logPlan(date, 'ล้างแพลนช่าง ' + (t ? t.name : techId) + ' (' + keys.length + ' ใบงาน)');
+  const kept = allKeys.length - keys.length;
+  logPlan(date, 'ล้างแพลนช่าง ' + (t ? t.name : techId) + ' (' + keys.length + ' ใบงาน' + (kept ? ', คงงานล็อกไว้ ' + kept + ' ใบ' : '') + ')');
   markEdited(date); return keys.length;
 }
 function unassignOne(date, key) { // นำออกเฉพาะใบงานเดียวจากกลุ่มบ้านเดียวกัน (Bundled Visit) ใบอื่นอยู่ในแพลนเหมือนเดิม
-  const j = S.jobs[key]; if (!j) return;
+  const j = S.jobs[key]; if (!j) return false;
   const plan = ensurePlan(date); const pv = plan.assign[key];
   if (pv && pv.tech && isTechLocked(date, pv.tech)) {
     toast('ช่างคนนี้ถูกล็อกงานแล้ว (🔒) ปลดล็อกก่อนจึงจะนำงานออกได้', 'err');
-    return;
+    return false;
+  }
+  if ((pv && pv.locked) || isCardLocked(date, key)) {
+    toast('การ์ดงานนี้ถูกล็อกอยู่ (🔒) กรุณาปลดล็อกที่มุมขวาบนของการ์ดก่อนนำออกจากแพลน', 'err');
+    return false;
   }
   pushUndo(date, 'นำออกเฉพาะใบ ' + j.access);
   j.solo = true; delete plan.assign[key]; plan.removed[key] = { tech: pv ? pv.tech : null, slot: pv ? pv.slot : null, ts: Date.now() };
   logPlan(date, 'ผู้ใช้ย้ายออกจากแพลนเฉพาะใบ ' + j.access + ' (Request ' + j.req + ') แยกจากบ้านเดียวกัน');
-  markEdited(date);
+  markEdited(date); return true;
 }
 function unassignUnit(date, key) {
-  const u = unitOf(date, key); if (!u) return;
+  const u = unitOf(date, key); if (!u) return false;
   const plan = ensurePlan(date);
   const isLocked = u.jobs.some(j => { const pv = plan.assign[j.key]; return pv && pv.tech && isTechLocked(date, pv.tech); });
   if (isLocked) {
     toast('ช่างคนนี้ถูกล็อกงานแล้ว (🔒) ปลดล็อกก่อนจึงจะนำงานออกได้', 'err');
-    return;
+    return false;
+  }
+  if (u.jobs.some(j => { const pv = plan.assign[j.key]; return pv && pv.locked; })) {
+    toast('การ์ดงานนี้ถูกล็อกอยู่ (🔒) กรุณาปลดล็อกที่มุมขวาบนของการ์ดก่อนนำออกจากแพลน', 'err');
+    return false;
   }
   pushUndo(date, 'นำออก ' + u.jobs[0].access);
   u.jobs.forEach(j => { const pv = plan.assign[j.key]; delete plan.assign[j.key]; plan.removed[j.key] = { tech: pv ? pv.tech : null, slot: pv ? pv.slot : null, ts: Date.now() }; });
   logPlan(date, 'ผู้ใช้ย้ายออกจากแพลน ' + u.jobs.map(j => j.access).join(','));
-  markEdited(date);
+  markEdited(date); return true;
 }
 function releaseRemoved(date, key) { const u = unitOf(date, key); if (!u) return; pushUndo(date, 'ให้ระบบจัดใหม่'); const p = ensurePlan(date); u.jobs.forEach(j => delete p.removed[j.key]); replan(date, 'ให้ระบบจัดงานที่ถูกนำออก'); save(); }
 function setDayOff(date, techId, val) {
@@ -2737,14 +2803,29 @@ function reopenPlan(date) { const p = ensurePlan(date); p.status = 'draft'; p.co
 function cancelPlan(date) { const p = ensurePlan(date); p.status = 'cancelled'; logPlan(date, 'ผู้ใช้ยกเลิกแพลน'); save(); }
 function clearDayPlan(date) {
   const p = ensurePlan(date);
+  const kept = {};
+  let removedCount = 0, keptCount = 0;
+  Object.keys(p.assign || {}).forEach(k => {
+    const a = p.assign[k];
+    if (a && (a.locked || (a.tech && isTechLocked(date, a.tech)))) {
+      kept[k] = a;
+      keptCount++;
+    } else {
+      removedCount++;
+    }
+  });
+  if (!removedCount) {
+    if (keptCount) toast('งานทั้งหมดในวันนี้ถูกล็อกไว้ (🔒) ไม่มีงานที่ล้างออกได้', 'err');
+    return { removed: 0, kept: keptCount };
+  }
   pushUndo(date, 'ล้างแพลนทั้งวัน');
-  const count = Object.keys(p.assign || {}).length;
-  p.assign = {};
+  p.assign = kept;
   p.proposal = {};
   p.removed = {};
   p.status = 'draft';
-  logPlan(date, 'ผู้ใช้ล้างแพลนทั้งวัน ปลดงานทั้งหมด ' + count + ' ใบออกเป็นงานรอจัด');
+  logPlan(date, 'ผู้ใช้ล้างแพลนทั้งวัน ปลดงาน ' + removedCount + ' ใบออกเป็นงานรอจัด' + (keptCount ? ' (คงงานล็อกไว้ ' + keptCount + ' ใบ)' : ''));
   save();
+  return { removed: removedCount, kept: keptCount };
 }
 function applyProposal(date) {
   const p = ensurePlan(date); pushUndo(date, 'ใช้ข้อเสนอจัดใหม่');
@@ -3136,13 +3217,21 @@ function latestRawUploadId() {
   const latest = (S.uploads || []).find(u => u.mode === 'raw');
   return latest ? latest.id : null;
 }
+const LOCK_SVG_LOCKED = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.2" fill="currentColor" fill-opacity="0.18"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path><circle cx="12" cy="16" r="1.2" fill="currentColor" stroke="none"></circle></svg>';
+const LOCK_SVG_UNLOCKED = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.2"></rect><path d="M8 11V7a4 4 0 0 1 7.6-1.7"></path></svg>';
 function chipHtml(e, a, locked) {
   const txt = cellText(e).split('\n');
   const q = search && !matchSearch(e.u) ? ' dim' : '';
-  const isNewUpload = !locked && !!latestRawUploadId() && e.u.jobs.some(j => j.uploadId === latestRawUploadId());
-  const tip = (locked ? '🔒 ช่างคนนี้ถูกล็อกงานแล้ว (ไม่สามารถโยกย้ายงานได้)\n' : '') + e.msgs.map(m => LV_ICON[m.lv] + ' ' + m.m).join('\n');
-  const canDrag = !locked;
-  return '<div class="chip lv-' + e.level + (isNewUpload ? ' new-upload' : '') + (locked ? ' chip-locked' : '') + q + '" draggable="' + canDrag + '" data-key="' + h(e.u.jobs[0].key) + '" data-act="job" data-k="' + h(e.u.jobs[0].key) + '" data-locked="' + (locked ? '1' : '0') + '" title="' + h((isNewUpload ? 'งานใหม่จากไฟล์ดิบที่อัปโหลดล่าสุด\n' : '') + tip) + '" tabindex="0" role="button" aria-label="' + h(txt.join(' ; ')) + (locked ? ' 🔒 ล็อกงาน' : '') + ' สถานะ ' + LV_TXT[e.level] + (isNewUpload ? ' งานใหม่จากไฟล์อัปโหลด' : '') + '"><i aria-hidden="true">' + (locked ? '🔒' : LV_ICON[e.level]) + '</i><span class="ct">' + txt.map((x, i) => { const hx = h(x).replace(/\//g, '/<wbr>'); return e.u.jobs.length > 1 && e.u.jobs[i] ? '<span class="cl" data-act="job" data-k="' + h(e.u.jobs[i].key) + '" title="กดดูรายละเอียดเฉพาะใบนี้">' + hx + '</span>' : hx; }).join('<br>') + '</span>' + distLine(e, a) + (locked ? '<small class="tag tag-locked">🔒 ล็อก</small>' : '') + (isNewUpload ? '<small class="tag new-upload-tag">งานใหม่</small>' : '') + (e.manual ? '<small class="tag">ผู้ใช้จัด</small>' : '') + (e.double ? '<small class="tag">Double-Up</small>' : '') + '</div>';
+  const cardLocked = !!e.cardLocked;
+  const anyLocked = !!(locked || cardLocked);
+  const isNewUpload = !anyLocked && !!latestRawUploadId() && e.u.jobs.some(j => j.uploadId === latestRawUploadId());
+  const tip = (locked ? '🔒 ช่างคนนี้ถูกล็อกงานแล้ว (ไม่สามารถโยกย้ายงานได้)\n' : cardLocked ? '🔒 การ์ดงานนี้ถูกล็อกไว้ (ไม่ถูกย้ายหรือจัดใหม่อัตโนมัติ)\n' : '') + e.msgs.map(m => LV_ICON[m.lv] + ' ' + m.m).join('\n');
+  const canDrag = !anyLocked;
+  const lockBtnTitle = locked
+    ? 'ช่างคนนี้ถูกล็อกทั้งแถวอยู่ (ปลดล็อกที่แถวช่าง)'
+    : (cardLocked ? 'ปลดล็อกการ์ดงานนี้ (กำลังล็อกอยู่)' : 'ล็อกการ์ดงานนี้ (ไม่ให้ย้ายหรือจัดใหม่อัตโนมัติ)');
+  const lockBtn = '<button type="button" class="chip-lock-btn ' + (anyLocked ? 'is-locked' : 'is-unlocked') + '" data-act="cardLock" data-k="' + h(e.u.jobs[0].key) + '" aria-pressed="' + anyLocked + '" aria-label="' + h(lockBtnTitle) + '" title="' + h(lockBtnTitle) + '" draggable="false">' + (anyLocked ? LOCK_SVG_LOCKED : LOCK_SVG_UNLOCKED) + '</button>';
+  return '<div class="chip lv-' + e.level + (isNewUpload ? ' new-upload' : '') + (locked ? ' chip-locked' : cardLocked ? ' card-locked' : '') + q + '" draggable="' + canDrag + '" data-key="' + h(e.u.jobs[0].key) + '" data-act="job" data-k="' + h(e.u.jobs[0].key) + '" data-locked="' + (anyLocked ? '1' : '0') + '" title="' + h((isNewUpload ? 'งานใหม่จากไฟล์ดิบที่อัปโหลดล่าสุด\n' : '') + tip) + '" tabindex="0" role="button" aria-label="' + h(txt.join(' ; ')) + (anyLocked ? ' 🔒 ล็อกงาน' : '') + ' สถานะ ' + LV_TXT[e.level] + (isNewUpload ? ' งานใหม่จากไฟล์อัปโหลด' : '') + '">' + lockBtn + '<i aria-hidden="true">' + (anyLocked ? '🔒' : LV_ICON[e.level]) + '</i><span class="ct">' + txt.map((x, i) => { const hx = h(x).replace(/\//g, '/<wbr>'); return e.u.jobs.length > 1 && e.u.jobs[i] ? '<span class="cl" data-act="job" data-k="' + h(e.u.jobs[i].key) + '" title="กดดูรายละเอียดเฉพาะใบนี้">' + hx + '</span>' : hx; }).join('<br>') + '</span>' + distLine(e, a) + (locked ? '<small class="tag tag-locked">🔒 ล็อก</small>' : '') + (isNewUpload ? '<small class="tag new-upload-tag">งานใหม่</small>' : '') + (e.manual ? '<small class="tag">ผู้ใช้จัด</small>' : '') + (e.double ? '<small class="tag">Double-Up</small>' : '') + '</div>';
 }
 function gmapBtn(a, tid) {
   const pts = a.perTech[tid].list.filter(e => e.u.coord).map(e => ({ lat: e.u.coord.lat, lon: e.u.coord.lon }));
@@ -4195,20 +4284,24 @@ function jobDetail(key) {
     '<dt>พิกัด</dt><dd>' + (j.coordSt === 'ok' ? j.lat + ', ' + j.lon : pill('warn', j.coordSt === 'missing' ? 'พิกัดไม่ครบ — ไม่สามารถคำนวณระยะทางได้' : 'พิกัดไม่ถูกต้อง — ไม่สามารถคำนวณระยะทางได้', '⚠') + ' <small>(' + h(j.latRaw) + ', ' + h(j.lonRaw) + ')</small>') + '</dd>' +
     Object.keys(j.extra || {}).map(k => '<dt>' + h(k) + '</dt><dd>' + hlText(j.extra[k]) + '</dd>').join('') +
     '<dt>ไฟล์ / แถว</dt><dd>' + h(j.file) + ' / แถว ' + j.rowNo + '</dd></dl>';
-  if (u && u.bundled) o += '<p>' + pill('info', 'Bundled Visit') + ' ใบงานที่จุดเดียวกัน (Slot เดียวกัน ห่างไม่เกิน 100 ม. หรือที่อยู่ตรงกัน) ระบบรวมเป็น 1 บ้าน:</p><ul class="log">' + u.jobs.map(x => '<li><b>' + h(x.access) + '</b> · Request ' + h(x.req) + ' · ' + h(x.timeStr || '') + (x.key === key ? ' <small class="muted">(ใบที่เปิดอยู่)</small>' : '') + (e ? ' <button class="btn tiny" data-act="unassignOne" data-k="' + h(x.key) + '" title="นำออกเฉพาะใบนี้ ใบอื่นของบ้านเดียวกันอยู่ในแพลนต่อ">นำเฉพาะใบนี้ออก</button>' : '') + '</li>').join('') + '</ul>';
+  const isLockedTech = e && isTechLocked(d, e.tech);
+  const isLockedCard = !isLockedTech && !!(e && e.cardLocked);
+  const isLockedAny = !!(isLockedTech || isLockedCard);
+  if (u && u.bundled) o += '<p>' + pill('info', 'Bundled Visit') + ' ใบงานที่จุดเดียวกัน (Slot เดียวกัน ห่างไม่เกิน 100 ม. หรือที่อยู่ตรงกัน) ระบบรวมเป็น 1 บ้าน:</p><ul class="log">' + u.jobs.map(x => '<li><b>' + h(x.access) + '</b> · Request ' + h(x.req) + ' · ' + h(x.timeStr || '') + (x.key === key ? ' <small class="muted">(ใบที่เปิดอยู่)</small>' : '') + (e && !isLockedAny ? ' <button class="btn tiny" data-act="unassignOne" data-k="' + h(x.key) + '" title="นำออกเฉพาะใบนี้ ใบอื่นของบ้านเดียวกันอยู่ในแพลนต่อ">นำเฉพาะใบนี้ออก</button>' : '') + '</li>').join('') + '</ul>';
   if (rs.length) o += '<div class="banner warn"><b>ต้องตรวจสอบ</b><ul>' + rs.map(r => '<li>' + h(r) + '</li>').join('') + '</ul></div>';
   if (e) { o += '<div class="banner ' + (e.level === 'ok' ? 'ok' : e.level === 'warn' ? 'warn' : 'risk') + '"><b>' + LV_ICON[e.level] + ' จัดอยู่กับ ' + h(a.techById[e.tech].name) + ' · Slot ' + e.slot + '</b><br><code>' + h(cardSummaryBanner).replace(/\n/g, '<br>') + '</code>' + (e.msgs.length ? '<ul>' + e.msgs.map(m => '<li>' + LV_ICON[m.lv] + ' ' + h(m.m) + '</li>').join('') + '</ul>' : '') + '</div>'; }
   else if (u) o += '<div class="banner risk">ยังไม่ได้จัดลงตาราง' + (u.whyNot ? ': ' + h(u.whyNot) : '') + '</div>';
   if (hist.length) o += '<h3>ประวัติการเปลี่ยนแปลง</h3><ul class="log">' + hist.map(c => '<li><span class="muted">' + fmtTs(c.ts) + '</span> ' + h(c.type) + ' — ' + (c.fields || []).map(f => h(f.f) + ': ' + h(f.b) + ' → ' + h(f.a)).join('; ') + '</li>').join('') + '</ul>';
-  const isLockedTech = e && isTechLocked(d, e.tech);
   if (isLockedTech) {
     o += '<div class="banner info" style="background:#f1f5f9;border-color:#cbd5e1;color:#1e293b;margin-top:10px"><b>🔒 ช่างคนนี้ถูกล็อกงานอยู่ (' + h(a.techById[e.tech].name) + ')</b><br>งานนี้ถูกล็อกไว้ในแพลน ไม่สามารถเปลี่ยนช่างหรือนำออกจากแพลนได้ หากต้องการโยกย้ายงาน กรุณาปลดล็อกที่การ์ดช่างก่อน</div>';
+  } else if (isLockedCard) {
+    o += '<div class="banner info" style="background:#fffbeb;border-color:#fcd34d;color:#78350f;margin-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><b>🔒 การ์ดงานนี้ถูกล็อกอยู่</b><br>การ์ดนี้จะไม่ถูกย้าย นำออก หรือจัดใหม่อัตโนมัติ จนกว่าจะปลดล็อก</div><button type="button" class="btn small" data-act="cardLockModal" data-k="' + h(key) + '">🔓 ปลดล็อกการ์ดนี้</button></div>';
   }
-  const pickBtn = isLockedTech
-    ? '<button class="btn" disabled style="opacity:0.5;cursor:not-allowed" title="ช่างถูกล็อกงานอยู่ ปลดล็อกก่อนเพื่อเปลี่ยนช่าง">🔒 ล็อกงานอยู่</button>'
+  const pickBtn = isLockedAny
+    ? '<button class="btn" disabled style="opacity:0.5;cursor:not-allowed" title="งานถูกล็อกอยู่ ปลดล็อกก่อนเพื่อเปลี่ยนช่าง">🔒 ล็อกงานอยู่</button>'
     : '<button class="btn primary" data-act="unitPick" data-k="' + h(key) + '">' + (e ? 'เปลี่ยนช่าง / Slot' : 'จัดให้ช่าง') + '…</button>';
   const unassignBtn = e
-    ? (isLockedTech ? '' : '<button class="btn" data-act="unassign" data-k="' + h(key) + '">นำออกจากแพลน</button>')
+    ? (isLockedAny ? '' : '<button class="btn" data-act="unassign" data-k="' + h(key) + '">นำออกจากแพลน</button>')
     : '';
   o += '</div><div class="mfoot">' + pickBtn + unassignBtn + ((j.absent || j.conflict) ? '<button class="btn" data-act="keepJob" data-k="' + h(key) + '">ตรวจแล้ว คงใบงาน</button>' : '') + '<button class="btn danger" data-act="cancelJobAsk" data-k="' + h(key) + '">ยกเลิกใบงานนี้</button></div>';
   openModal(o, true);
@@ -4457,7 +4550,9 @@ async function loadRemoveSuggestRealRoutes(ctx) {
 function removeWithSuggest(date, key, single) {
   const a0 = analyze(date); const en = a0.entries.find(x => x.u.jobs.some(j => j.key === key));
   const tech = en ? en.tech : null, slot = en ? en.slot : null;
-  if (single) unassignOne(date, key); else unassignUnit(date, key); render();
+  const ok = single ? unassignOne(date, key) : unassignUnit(date, key);
+  if (!ok) { render(); return; }
+  render();
   toast(single ? 'นำออกเฉพาะใบงานนี้แล้ว ใบอื่นของบ้านเดียวกันยังอยู่ในแพลน (ย้อนกลับได้)' : 'นำออกจากแพลนแล้ว (ย้อนกลับได้)', 'ok');
   if (!tech) return;
   const a = analyze(date); const t = a.techById[tech]; if (!t || a.off[tech]) return;
@@ -4668,10 +4763,12 @@ const ACT = {
       toast('เบราว์เซอร์ไม่อนุญาตคัดลอกอัตโนมัติ กรุณากด Ctrl+C เพื่อคัดลอก', 'warn');
     }
   },
-  clearTech: t => { const d = curDate(), id = t.dataset.t, pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } if (isTechLocked(d, id)) { toast('ช่างคนนี้ล็อกงานอยู่ ปลดล็อกก่อนจึงล้างแพลนได้', 'err'); return; } const tc = S.techs.find(x => x.id === id), n = Object.values((pl || {}).assign || {}).filter(v => v.tech === id).length; if (!n) { toast('ช่างคนนี้ยังไม่มีงานในแพลน', 'info'); return; }
-    openModal('<h2>ล้างแพลนของ ' + h(tc.name) + '?</h2><div class="mbody"><p>จะนำงานทั้งหมดของช่างคนนี้ <b>' + n + ' ใบ</b> ออกจากแพลนวันที่ ' + fmtDateTH(d) + '</p><p class="muted">งานที่นำออกจะแสดงเป็น "⊘ นำออก" ในช่องเดิม กดนำกลับได้ และกดย้อนกลับได้ งานของช่างคนอื่นไม่ถูกแตะ</p></div><div class="mfoot"><button class="btn primary" data-act="clearTechDo" data-t="' + h(id) + '">ล้างแพลน ' + n + ' ใบ</button><button class="btn" data-act="closeModal">ยกเลิก</button></div>'); },
-  clearTechDo: t => { const d = curDate(), id = t.dataset.t; closeModal(); const n = clearTech(d, id); render(); toast('ล้างแพลนแล้ว ' + n + ' ใบ (ย้อนกลับได้)', 'ok'); },
+  clearTech: t => { const d = curDate(), id = t.dataset.t, pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } if (isTechLocked(d, id)) { toast('ช่างคนนี้ล็อกงานอยู่ ปลดล็อกก่อนจึงล้างแพลนได้', 'err'); return; } const tc = S.techs.find(x => x.id === id), all = Object.values((pl || {}).assign || {}).filter(v => v.tech === id), n = all.filter(v => !v.locked).length, lockedN = all.length - n; if (!all.length) { toast('ช่างคนนี้ยังไม่มีงานในแพลน', 'info'); return; } if (!n) { toast('งานทั้งหมดของช่างคนนี้ (' + lockedN + ' ใบ) ถูกล็อกอยู่ (🔒) ปลดล็อกก่อนจึงล้างได้', 'err'); return; }
+    openModal('<h2>ล้างแพลนของ ' + h(tc.name) + '?</h2><div class="mbody"><p>จะนำงานของช่างคนนี้ <b>' + n + ' ใบ</b> ออกจากแพลนวันที่ ' + fmtDateTH(d) + (lockedN ? ' <span class="muted">(งานที่ล็อกไว้ <b>' + lockedN + ' ใบ</b> จะคงอยู่ในตาราง)</span>' : '') + '</p><p class="muted">งานที่นำออกจะแสดงเป็น "⊘ นำออก" ในช่องเดิม กดนำกลับได้ และกดย้อนกลับได้ งานของช่างคนอื่นไม่ถูกแตะ</p></div><div class="mfoot"><button class="btn primary" data-act="clearTechDo" data-t="' + h(id) + '">ล้างแพลน ' + n + ' ใบ</button><button class="btn" data-act="closeModal">ยกเลิก</button></div>'); },
+  clearTechDo: t => { const d = curDate(), id = t.dataset.t; closeModal(); const n = clearTech(d, id); render(); if (n) toast('ล้างแพลนแล้ว ' + n + ' ใบ (ย้อนกลับได้)', 'ok'); },
   techLock: t => { const d = curDate(), pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } const on = toggleTechLock(d, t.dataset.t); save(); render(); toast(on ? 'ล็อกงานของช่างคนนี้แล้ว จัดใหม่รอบหน้าจะไม่ย้ายและไม่เพิ่มงานให้' : 'ปลดล็อกแล้ว', 'ok'); },
+  cardLock: (t, ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); const k = t.dataset.k; const d = (S.jobs[k] && S.jobs[k].date) || curDate(); const r = toggleCardLock(d, k); if (r.err) { toast(r.err, 'err'); return; } render(); toast(r.locked ? '🔒 ล็อกการ์ดงานนี้แล้ว (ไม่ย้ายและไม่จัดใหม่อัตโนมัติ)' : '🔓 ปลดล็อกการ์ดงานนี้แล้ว', 'ok'); },
+  cardLockModal: (t, ev) => { if (ev && ev.stopPropagation) ev.stopPropagation(); const k = t.dataset.k; const d = (S.jobs[k] && S.jobs[k].date) || curDate(); const r = toggleCardLock(d, k); if (r.err) { toast(r.err, 'err'); return; } render(); jobDetail(k); toast(r.locked ? '🔒 ล็อกการ์ดงานนี้แล้ว' : '🔓 ปลดล็อกการ์ดงานนี้แล้ว', 'ok'); },
   dayoff: t => { const d = curDate(), id = t.dataset.t, cur = !!(S.dayOff[d] || {})[id]; const had = setDayOff(d, id, !cur); render(); const tc = S.techs.find(x => x.id === id); scheduleSettingsSheetSync(!cur ? 'เพิ่มวันหยุดช่าง' : 'ลบวันหยุดช่าง', (tc ? tc.name : id) + ' วันที่ ' + d); toast(!cur ? 'ตั้งเป็นวันหยุดแล้ว' + (had ? ' นำงาน ' + had + ' ใบออกจากช่างและจัดใหม่ให้' : '') : 'ยกเลิกวันหยุดแล้ว และจัดแพลนใหม่', 'ok'); },
   cellPick: t => { const d = curDate(), a = analyze(d); const L = a.unassigned.concat(a.review); if (!L.length) { toast('ไม่มีงานค้างให้จัด ลากงานจากช่องอื่นมาวางได้'); return; } cpCtx = { tech: t.dataset.t, slot: +t.dataset.s, a, L, loading: true, token: ++modalRouteToken }; openModal('<h2>เลือกงานลงช่องนี้ (' + h(a.techById[t.dataset.t].name) + ' · Slot ' + t.dataset.s + ')</h2><div class="mbody"><input id="cpq" type="search" placeholder="ค้นหาเขต / Access Number / ชื่องาน" style="width:100%" autofocus><p class="small muted">เรียงงานที่เวลานัดตรง Slot นี้ก่อน แล้วเรียงตามระยะทางขับรถจริงจากงานต่อเนื่องกันในแพลน</p><div id="cpStatus" style="margin:6px 0 8px"><span class="pill info">⏳ กำลังคำนวณระยะทางจริงตามถนนจากงานต่อเนื่องในแพลน (' + L.length + ' งาน)...</span></div><div id="cpList">' + cellPickList('') + '</div></div>'); loadCellPickRealRoutes(cpCtx); },
   cellPut: t => tryAssign(t.dataset.k, t.dataset.t, +t.dataset.s),
@@ -4893,6 +4990,7 @@ document.addEventListener('input', e => { if (e.target.id === 'q') { search = e.
 /* drag & drop */
 let dragKey = null;
 document.addEventListener('dragstart', e => {
+  if (e.target.closest && e.target.closest('.chip-lock-btn')) { e.preventDefault(); return; }
   const el = e.target.closest && e.target.closest('[data-key][draggable]');
   if (!el) return;
   const k = el.dataset.key;
@@ -4903,6 +5001,11 @@ document.addEventListener('dragstart', e => {
     if (asg && asg.tech && isTechLocked(j.date, asg.tech)) {
       e.preventDefault();
       toast('ช่างคนนี้ถูกล็อกงานแล้ว (🔒) ปลดล็อกก่อนจึงจะโยกย้ายงานได้', 'err');
+      return;
+    }
+    if (isCardLocked(j.date, k)) {
+      e.preventDefault();
+      toast('การ์ดงานนี้ถูกล็อกอยู่ (🔒) กรุณาปลดล็อกที่มุมขวาบนของการ์ดก่อนย้ายงาน', 'err');
       return;
     }
   }
@@ -4930,6 +5033,10 @@ document.addEventListener('drop', e => {
       toast('งานนี้เป็นของช่างที่ถูกล็อกงานแล้ว (🔒) ไม่สามารถย้ายได้ ปลดล็อกก่อน', 'err');
       return;
     }
+    if (isCardLocked(d, k)) {
+      toast('การ์ดงานนี้ถูกล็อกอยู่ (🔒) กรุณาปลดล็อกที่มุมขวาบนของการ์ดก่อนย้ายงาน', 'err');
+      return;
+    }
     tryAssign(k, targetTech, +c.dataset.slot);
   }
   else if (z && dragKey) {
@@ -4938,6 +5045,10 @@ document.addEventListener('drop', e => {
     const curAsg = pl && pl.assign && pl.assign[k];
     if (curAsg && curAsg.tech && isTechLocked(d, curAsg.tech)) {
       toast('ช่างคนนี้ถูกล็อกงานแล้ว (🔒) ปลดล็อกก่อนจึงจะนำงานออกได้', 'err');
+      return;
+    }
+    if (isCardLocked(d, k)) {
+      toast('การ์ดงานนี้ถูกล็อกอยู่ (🔒) กรุณาปลดล็อกที่มุมขวาบนของการ์ดก่อนนำออกจากแพลน', 'err');
       return;
     }
     const a = analyze(d); const en = a.entries.find(x => x.u.jobs.some(j => j.key === k)); if (en) removeWithSuggest(d, k);
@@ -4986,11 +5097,15 @@ async function init() {
       const d = curDate();
       if (!d || !jobsOn(d).length) { toast('ไม่มีข้อมูลใบงานในวันที่เลือก', 'warn'); return; }
       const p = S.plans[d];
-      const count = p ? Object.keys(p.assign || {}).length : 0;
-      if (!count) { toast('ยังไม่มีงานในแพลนที่จะล้าง', 'info'); return; }
+      const asg = (p && p.assign) || {};
+      const allKeys = Object.keys(asg);
+      if (!allKeys.length) { toast('ยังไม่มีงานในแพลนที่จะล้าง', 'info'); return; }
+      const lockedCount = allKeys.filter(k => asg[k] && (asg[k].locked || (asg[k].tech && isTechLocked(d, asg[k].tech)))).length;
+      const unlockCount = allKeys.length - lockedCount;
+      if (!unlockCount) { toast('งานทั้งหมด (' + lockedCount + ' ใบ) ถูกล็อกอยู่ (🔒) ไม่มีงานที่ล้างออกได้', 'err'); return; }
       ask('ล้างแพลนวันที่ ' + fmtDateTH(d) + ' ?',
-        '<p>งานทั้งหมด <b>' + count + ' ใบงาน</b> จะถูกปลดออกจากตารางช่างทุกคน กลับไปเป็น <b>งานรอจัด (Unassigned)</b> ทั้งหมด 100%</p><p class="muted small">คุณสามารถกด "สร้างร่างแพลนอัตโนมัติใหม่" เพื่อให้ระบบจัดใหม่ตั้งแต่ต้นได้ทันที หรือกดย้อนกลับ (Undo) ได้</p>',
-        [{ label: '🗑️ ล้างแพลนทั้งวัน', cls: 'danger', fn: () => { clearDayPlan(d); closeModal(); render(); toast('ล้างแพลนของวันที่ ' + fmtDateTH(d) + ' เรียบร้อยแล้ว (งานกลับไปเป็นงานรอจัด)', 'ok'); } }, { label: 'ไม่ทำ', fn: closeModal }]
+        '<p>งานที่ไม่ได้ล็อก <b>' + unlockCount + ' ใบงาน</b> จะถูกปลดออกจากตารางช่าง กลับไปเป็น <b>งานรอจัด (Unassigned)</b>' + (lockedCount ? ' (งานที่ถูกล็อก <b>' + lockedCount + ' ใบ</b> จะคงไว้ในแพลน)' : '') + '</p><p class="muted small">คุณสามารถกด "สร้างร่างแพลนอัตโนมัติใหม่" เพื่อให้ระบบจัดใหม่ตั้งแต่ต้นได้ทันที หรือกดย้อนกลับ (Undo) ได้</p>',
+        [{ label: '🗑️ ล้างแพลน (' + unlockCount + ' ใบ)', cls: 'danger', fn: () => { const r = clearDayPlan(d); closeModal(); render(); toast('ล้างแพลนแล้ว ' + r.removed + ' ใบ' + (r.kept ? ' (คงงานล็อกไว้ ' + r.kept + ' ใบ)' : ''), 'ok'); } }, { label: 'ไม่ทำ', fn: closeModal }]
       );
     });
   }
@@ -5003,7 +5118,7 @@ async function init() {
   render();
   initPresenceTracker();
   pullSettingsFromGoogleSheet({ silent: true, autoInitPush: true });
-  window.__app = { get S() { return S; }, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
+  window.__app = { get S() { return S; }, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, toggleCardLock, isCardLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
 }
 
 
