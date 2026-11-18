@@ -1703,6 +1703,8 @@ const effDistrict = j => j.dOver || j.dName || null;
 const jobCoord = j => (j.coordSt === 'ok' ? { lat: j.lat, lon: j.lon } : null);
 function natSlot(j) { if (j.min == null || j.min < 540 || j.min >= 1140) return null; return Math.floor((j.min - 540) / 120) + 1; }
 const isFTTB = t => /FTTB/i.test(t || '');
+const isPB = t => /ATV|PLAYBOX/i.test(t || '');
+const jobTypeTags = t => (isFTTB(t) ? ' FTTB' : '') + (isPB(t) ? ' PB' : '');
 function normTitle(x) { return String(x || '').toLowerCase().replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\s+/g, ' ').trim(); }
 /* คีย์เทียบแบบหลวม: NFKC, ตัวพิมพ์เล็ก, ตัดอักขระล่องหน, รวมสระอำ, ตัดทุกอย่างที่ไม่ใช่ตัวอักษร/ตัวเลข */
 function looseKey(x) { return String(x || '').normalize('NFKC').toLowerCase().replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\u0E4D\u0E32/g, '\u0E33').replace(/[^\p{L}\p{N}\p{M}]+/gu, ''); }
@@ -2695,7 +2697,7 @@ function analyze(date) {
   return { ghosts, date, plan, off, techs, techById, excluded: excludedOn(date), units, cells, entries, unassigned, review, pairs, doubleUps, bundles, perTech, counts, jobs, sameAccess };
 }
 function cellText(e) { // รูปแบบสั้นตามข้อกำหนดเท่านั้น
-  return e.u.jobs.map(j => 's' + e.slot + '/' + j.access + '/' + (effDistrict(j) || 'รอตรวจสอบเขต') + '/' + (j.timeStr || '') + (isFTTB(j.title) ? ' FTTB' : '')).join('\n');
+  return e.u.jobs.map(j => 's' + e.slot + '/' + j.access + '/' + (effDistrict(j) || 'รอตรวจสอบเขต') + '/' + (j.timeStr || '') + jobTypeTags(j.title)).join('\n');
 }
 
 /* ===== Manual edits + undo ===== */
@@ -3108,7 +3110,7 @@ function render() {
     $('main').innerHTML = '<section class="empty-state"><h2>เกิดข้อผิดพลาดในการแสดงผล</h2><p class="muted">' + h(err.message || String(err)) + '</p><p><button class="btn primary" onclick="location.reload()">โหลดหน้าเว็บใหม่</button></p></section>';
   }
 }
-function matchSearch(u) { if (!search) return true; const s = search.toLowerCase(); return u.jobs.some(j => (j.access + ' ' + j.req + ' ' + (effDistrict(j) || '') + ' ' + j.title + ' ' + j.address).toLowerCase().includes(s)); }
+function matchSearch(u) { if (!search) return true; const s = search.toLowerCase(); return u.jobs.some(j => (j.access + ' ' + j.req + ' ' + (effDistrict(j) || '') + ' ' + j.title + ' ' + j.address + jobTypeTags(j.title)).toLowerCase().includes(s)); }
 
 function emptyState() {
   return '<section class="empty-state"><h2>เริ่มต้น: นำเข้าไฟล์งาน</h2><p>เลือกไฟล์ Excel (.xlsx, .xls) หรือ CSV ที่มีคอลัมน์ Title, Access Number, Request No., Plan Arrival Time, Address, Latitude, Longitude โปรแกรมจะแสดงตัวอย่างข้อมูลให้ตรวจก่อน เมื่อกดยืนยันจะจัดร่างแพลนลงตารางช่างให้ทันที</p><div class="dz" id="dz" tabindex="0" data-act="pickFile">ลากไฟล์มาวางที่นี่ หรือกดเพื่อเลือกไฟล์</div><p class="muted">ข้อมูลทั้งหมดประมวลผลและเก็บในเบราว์เซอร์ของคุณเท่านั้น ไม่มีการส่งไฟล์ไปบริการภายนอก</p></section>';
@@ -3273,7 +3275,7 @@ function tableHtml(a) {
 }
 function unitCard(u, kind, a) {
   const j0 = u.jobs[0];
-  const lines = u.jobs.map(j => '<code>' + h('s' + (natSlot(j) || '?') + '/' + j.access + '/' + (effDistrict(j) || 'รอตรวจสอบเขต') + '/' + (j.timeStr || '-') + (isFTTB(j.title) ? ' FTTB' : '')) + '</code>').join('<br>');
+  const lines = u.jobs.map(j => '<code>' + h('s' + (natSlot(j) || '?') + '/' + j.access + '/' + (effDistrict(j) || 'รอตรวจสอบเขต') + '/' + (j.timeStr || '-') + jobTypeTags(j.title)) + '</code>').join('<br>');
   const why = kind === 'review' ? u.reasons.map(r => '<li>' + h(r) + '</li>').join('') : '<li>' + h(u.whyNot || '') + '</li>';
   const opts = (u.options || []).map(o => o.far ? '<li>ถ้าให้ <b>' + h(o.tech.name) + '</b> เริ่มงานแรกที่นี่ (Slot ' + o.slot + ') จะห่างเขตเริ่มงาน "' + h(o.tech.zone) + '" ประมาณ ' + o.zd.toFixed(1) + ' กม. เส้นตรง <button class="btn small" data-act="approveFar" data-k="' + h(j0.key) + '" data-t="' + h(o.tech.id) + '" data-s="' + o.slot + '">อนุมัติและจัดงานต่อจากงานนี้</button></li>' : o.tech ? '<li>เสนอ Double-Up กับ ' + h(o.with.jobs[0].access) + ' (' + h(o.tech.name) + ' Slot ' + u.slot + ') ระยะเส้นตรง ' + o.d.toFixed(1) + ' กม. — ' + h(o.level) + ' <small>(รอตรวจสอบ ยังไม่อนุมัติ)</small></li>' : '<li class="muted">' + h(o.txt) + '</li>').join('');
   const pr = a.plan && a.plan.proposal && a.plan.proposal[j0.key]; const prt = pr && S.techs.find(t => t.id === pr.tech);
@@ -4258,8 +4260,8 @@ function fitRealMapBounds(a) {
 window.jobDetail = jobDetail;
 async function exportMyMaps() {
   const d = curDate(), a = analyze(d); const rows = [['Tech', 'Order', 'Slot', 'AccessNumber', 'RequestNo', 'District', 'Time', 'FTTB', 'DistFromPrevKm', 'Latitude', 'Longitude', 'Name']];
-  a.techs.forEach(t => a.perTech[t.id].list.forEach((e, i) => e.u.jobs.forEach((j, k) => { const c = jobCoord(j); if (!c) return; rows.push([t.name, i + 1, e.slot, j.access, j.req, effDistrict(j) || '', j.timeStr || '', isFTTB(j.title) ? 'FTTB' : '', k === 0 && e.prev && e.prev.d != null ? e.prev.d.toFixed(2) : '', c.lat, c.lon, 'S' + e.slot + ' ' + j.access]); })));
-  a.unassigned.concat(a.review).forEach(u => u.jobs.forEach(j => { const c = jobCoord(j); if (c) rows.push(['(ยังไม่ได้จัด)', '', natSlot(j) || '', j.access, j.req, effDistrict(j) || '', j.timeStr || '', isFTTB(j.title) ? 'FTTB' : '', '', c.lat, c.lon, 'ยังไม่จัด ' + j.access]); }));
+  a.techs.forEach(t => a.perTech[t.id].list.forEach((e, i) => e.u.jobs.forEach((j, k) => { const c = jobCoord(j); if (!c) return; rows.push([t.name, i + 1, e.slot, j.access, j.req, effDistrict(j) || '', j.timeStr || '', jobTypeTags(j.title).trim(), k === 0 && e.prev && e.prev.d != null ? e.prev.d.toFixed(2) : '', c.lat, c.lon, 'S' + e.slot + ' ' + j.access]); })));
+  a.unassigned.concat(a.review).forEach(u => u.jobs.forEach(j => { const c = jobCoord(j); if (c) rows.push(['(ยังไม่ได้จัด)', '', natSlot(j) || '', j.access, j.req, effDistrict(j) || '', j.timeStr || '', jobTypeTags(j.title).trim(), '', c.lat, c.lon, 'ยังไม่จัด ' + j.access]); }));
   const csv = '﻿' + rows.map(r => r.map(x => { x = String(x); return /[",\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }).join(',')).join('\r\n');
   await saveFile('technician-routes-' + d + '.csv', new Blob([csv], { type: 'text/csv' }));
 }
@@ -4274,11 +4276,11 @@ function jobDetail(key) {
   const hist = S.changes.filter(c => c.key === key);
   const names = Object.values(DISTRICTS);
   const slotNum = e ? e.slot : (natSlot(j) || '-');
-  const cardSummarySingle = 's' + slotNum + '/' + (j.access || '') + '/' + (effDistrict(j) || 'รอตรวจสอบเขต') + '/' + (j.timeStr || '') + (isFTTB(j.title) ? ' FTTB' : '');
+  const cardSummarySingle = 's' + slotNum + '/' + (j.access || '') + '/' + (effDistrict(j) || 'รอตรวจสอบเขต') + '/' + (j.timeStr || '') + jobTypeTags(j.title);
   const cardSummaryBanner = e ? cellText(e) : cardSummarySingle;
   let o = '<h2>ใบงาน ' + h(j.req || '(ไม่มี Request No.)') + '</h2><div class="mbody"><dl class="kv">' +
     '<dt>รายละเอียดการ์ดงาน</dt><dd><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><code style="padding:4px 8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;color:#1e3a8a;font-weight:700;user-select:all">' + h(cardSummarySingle) + '</code> <button type="button" class="btn small primary" data-act="copyJobText" data-copy="' + h(cardSummarySingle) + '">📋 คัดลอก</button></div></dd>' +
-    '<dt>Access Number</dt><dd>' + h(j.access) + '</dd><dt>Request No.</dt><dd>' + h(j.req) + '</dd><dt>Title</dt><dd>' + h(j.title) + (isFTTB(j.title) ? ' ' + pill('info', 'FTTB') : '') + '</dd>' +
+    '<dt>Access Number</dt><dd>' + h(j.access) + '</dd><dt>Request No.</dt><dd>' + h(j.req) + '</dd><dt>Title</dt><dd>' + h(j.title) + (isFTTB(j.title) ? ' ' + pill('info', 'FTTB') : '') + (isPB(j.title) ? ' ' + pill('info', 'PB') : '') + '</dd>' +
     '<dt>เวลานัด (ข้อมูลเดิม)</dt><dd>' + h(j.planRaw) + (j.timeErr ? ' ' + pill('risk', j.timeErr, '✖') : '') + '</dd><dt>Slot ตามเวลานัด</dt><dd>' + (natSlot(j) ? 'Slot ' + natSlot(j) + ' (' + SLOTS[natSlot(j) - 1].label + ')' : '-') + '</dd>' +
     '<dt>Address</dt><dd>' + h(j.address) + '</dd><dt>เขตลูกค้า</dt><dd><b>' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</b> <small class="muted">' + h(j.dOver ? 'ผู้ใช้กำหนดเอง' : j.dHow || '') + '</small><br><select id="dOver" data-chg="dover" data-k="' + h(key) + '"><option value="">— ใช้ค่าที่อ่านได้จากที่อยู่ —</option>' + names.map(n => '<option value="' + h(n.name) + '"' + (j.dOver === n.name ? ' selected' : '') + '>' + h(n.name) + ' (' + h(n.prov) + ')</option>').join('') + '</select></dd>' +
     '<dt>พิกัด</dt><dd>' + (j.coordSt === 'ok' ? j.lat + ', ' + j.lon : pill('warn', j.coordSt === 'missing' ? 'พิกัดไม่ครบ — ไม่สามารถคำนวณระยะทางได้' : 'พิกัดไม่ถูกต้อง — ไม่สามารถคำนวณระยะทางได้', '⚠') + ' <small>(' + h(j.latRaw) + ', ' + h(j.lonRaw) + ')</small>') + '</dd>' +
@@ -4630,7 +4632,7 @@ function computePending() {
   P.dates = Object.keys(dc).sort().map(d => ({ d, n: dc[d] }));
   if (!P.date || !dc[P.date]) P.date = dc[S.selectedDate] ? S.selectedDate : (P.dates.slice().sort((a, b) => b.n - a.n)[0] || {}).d || null;
   const keys = {}; let dupN = 0; P.jobs.forEach(j => { if (keys[j.key]) dupN++; keys[j.key] = 1; });
-  P.stat = { rows: P.jobs.length, noReq: P.jobs.filter(j => j.noReq).length, badTime: P.jobs.filter(j => j.timeErr).length, outTime: P.jobs.filter(j => !j.timeErr && natSlot(j) == null).length, noDist: P.jobs.filter(j => !effDistrict(j)).length, noCoord: P.jobs.filter(j => j.coordSt !== 'ok').length, dup: dupN, fttb: P.jobs.filter(j => isFTTB(j.title)).length, excl: P.jobs.filter(isExcluded).length, isNew: P.jobs.filter(j => !S.jobs[j.key]).length, same: 0, changed: 0 };
+  P.stat = { rows: P.jobs.length, noReq: P.jobs.filter(j => j.noReq).length, badTime: P.jobs.filter(j => j.timeErr).length, outTime: P.jobs.filter(j => !j.timeErr && natSlot(j) == null).length, noDist: P.jobs.filter(j => !effDistrict(j)).length, noCoord: P.jobs.filter(j => j.coordSt !== 'ok').length, dup: dupN, fttb: P.jobs.filter(j => isFTTB(j.title)).length, pb: P.jobs.filter(j => isPB(j.title)).length, excl: P.jobs.filter(isExcluded).length, isNew: P.jobs.filter(j => !S.jobs[j.key]).length, same: 0, changed: 0 };
   P.jobs.forEach(j => { const o = S.jobs[j.key]; if (o) { if (diffJobs(o, j).length) P.stat.changed++; else P.stat.same++; } });
   P.pl = null; if (P.mode === 'planned' && !P.err.length) { const m = {}, nm = {}; let blank = 0, noSlot = 0; P.jobs.forEach(j => { if (!j.engineer) { blank++; return; } const t = matchTech(j.engineer); if (!t) { nm[j.engineer] = (nm[j.engineer] || 0) + 1; return; } if (natSlot(j) == null) { noSlot++; return; } m[t.name] = (m[t.name] || 0) + 1; }); P.pl = { m, nm, blank, noSlot, total: Object.values(m).reduce((a, b) => a + b, 0) }; }
 }
@@ -4641,7 +4643,7 @@ function showImport() {
   o += P.err.map(e => '<div class="banner risk">✖ ' + h(e) + '</div>').join('') + P.warn.map(e => '<div class="banner warn">⚠ ' + h(e) + '</div>').join('');
   o += '<details' + (P.err.length ? ' open' : '') + '><summary>การจับคู่คอลัมน์</summary><div class="map">' + Object.keys(FIELD_LABEL).map(f => '<label>' + h(FIELD_LABEL[f]) + (FATAL_FIELDS.includes(f) ? ' *' : '') + sel(f) + '</label>').join('') + '</div><p class="small muted">คอลัมน์ที่ไม่ได้จับคู่จะถูกเก็บไว้ในรายละเอียดงาน</p></details>';
   if (!P.err.length) {
-    o += '<div class="summary small">' + [[P.mode === 'planned' ? 'งานที่มีชื่อช่าง' : 'งานผ่านเงื่อนไข', st.rows, 'info'], [P.mode === 'planned' ? 'ไม่มีชื่อช่าง (ไม่นำเข้า)' : 'กรองออก', P.filtered || 0, (P.filtered ? 'warn' : 'ok')], ['งานใหม่', st.isNew, 'info'], ['มีอยู่แล้ว ไม่เปลี่ยน', st.same, 'ok'], ['มีอยู่แล้ว ข้อมูลเปลี่ยน', st.changed, st.changed ? 'warn' : 'ok'], ['Request No. ซ้ำในไฟล์', st.dup, st.dup ? 'warn' : 'ok'], ['ไม่มี Request No.', st.noReq, st.noReq ? 'risk' : 'ok'], ['เวลาผิดรูปแบบ/ไม่มี', st.badTime, st.badTime ? 'risk' : 'ok'], ['เวลานอก 09:00–19:00', st.outTime, st.outTime ? 'warn' : 'ok'], ['ระบุเขตไม่ได้', st.noDist, st.noDist ? 'warn' : 'ok'], ['พิกัดไม่ครบ/ผิด', st.noCoord, st.noCoord ? 'warn' : 'ok'], ['FTTB', st.fttb, 'info'], ['นอกพื้นที่ (ตัดทิ้ง)', st.excl, 'info']].map(x => '<div class="stat ' + x[2] + '"><span class="n">' + x[1] + '</span><span class="l">' + h(x[0]) + '</span></div>').join('') + '</div>';
+    o += '<div class="summary small">' + [[P.mode === 'planned' ? 'งานที่มีชื่อช่าง' : 'งานผ่านเงื่อนไข', st.rows, 'info'], [P.mode === 'planned' ? 'ไม่มีชื่อช่าง (ไม่นำเข้า)' : 'กรองออก', P.filtered || 0, (P.filtered ? 'warn' : 'ok')], ['งานใหม่', st.isNew, 'info'], ['มีอยู่แล้ว ไม่เปลี่ยน', st.same, 'ok'], ['มีอยู่แล้ว ข้อมูลเปลี่ยน', st.changed, st.changed ? 'warn' : 'ok'], ['Request No. ซ้ำในไฟล์', st.dup, st.dup ? 'warn' : 'ok'], ['ไม่มี Request No.', st.noReq, st.noReq ? 'risk' : 'ok'], ['เวลาผิดรูปแบบ/ไม่มี', st.badTime, st.badTime ? 'risk' : 'ok'], ['เวลานอก 09:00–19:00', st.outTime, st.outTime ? 'warn' : 'ok'], ['ระบุเขตไม่ได้', st.noDist, st.noDist ? 'warn' : 'ok'], ['พิกัดไม่ครบ/ผิด', st.noCoord, st.noCoord ? 'warn' : 'ok'], ['FTTB', st.fttb, 'info'], ['PB', st.pb || 0, 'info'], ['นอกพื้นที่ (ตัดทิ้ง)', st.excl, 'info']].map(x => '<div class="stat ' + x[2] + '"><span class="n">' + x[1] + '</span><span class="l">' + h(x[0]) + '</span></div>').join('') + '</div>';
     if (P.pl) o += '<div class="banner ' + (P.pl.total ? 'ok' : 'risk') + '">ล็อกงานให้ช่างตามชื่อ Field Engineer ได้ <b>' + P.pl.total + '</b> ใบ: ' + Object.keys(P.pl.m).map(k => h(k) + ' ' + P.pl.m[k]).join(' · ') + '</div>' + (P.pl.blank ? '<div class="banner warn">⚠ ไม่มีชื่อช่าง ' + P.pl.blank + ' ใบ (จะนำเข้าเป็นงานปกติ ไม่ล็อก)</div>' : '') + (Object.keys(P.pl.nm).length ? '<div class="banner warn">⚠ ชื่อที่ไม่ตรงกับช่างในโปรแกรม (ไม่ล็อก): ' + Object.keys(P.pl.nm).map(k => h(k) + ' ×' + P.pl.nm[k]).join(' · ') + '</div>' : '') + (P.pl.noSlot ? '<div class="banner warn">⚠ เวลานัดอ่านไม่ได้/อยู่นอก Slot ' + P.pl.noSlot + ' ใบ (ไม่ล็อก)</div>' : '');
     o += '<h3>เลือกวันที่จัดแพลน</h3>' + (P.dates.length ? '<div class="radios">' + P.dates.map(x => '<label><input type="radio" name="pdate" data-chg="pdate" value="' + x.d + '"' + (x.d === P.date ? ' checked' : '') + '> ' + fmtDateTH(x.d) + ' <small>(' + x.n + ' ใบงาน)</small></label>').join('') + '</div><p class="muted small">ไฟล์ทั้งหมดถูกเก็บไว้ ส่วนวันที่อื่นสลับดูได้ภายหลัง และจะจัดให้อัตโนมัติเมื่อเลือกวันนั้น</p>' : '<div class="banner risk">ไม่มีแถวที่อ่านวันที่ได้ จึงยังจัดแพลนไม่ได้</div>');
     o += '<h3>ตัวอย่างข้อมูล (8 แถวแรก)</h3><div class="tscroll"><table class="data"><thead><tr><th>Request No.</th><th>Access Number</th><th>เวลานัด</th><th>เขตที่อ่านได้</th><th>พิกัด</th><th>Title</th></tr></thead><tbody>' + P.jobs.slice(0, 8).map(j => '<tr><td>' + h(j.req) + '</td><td>' + h(j.access) + '</td><td>' + h(j.timeErr ? j.timeErr : (j.date + ' ' + j.timeStr)) + '</td><td>' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</td><td>' + (j.coordSt === 'ok' ? j.lat + ', ' + j.lon : '⚠ ไม่ครบ/ผิด') + '</td><td>' + h((j.title || '').slice(0, 60)) + '</td></tr>').join('') + '</tbody></table></div>';
@@ -5118,7 +5120,7 @@ async function init() {
   render();
   initPresenceTracker();
   pullSettingsFromGoogleSheet({ silent: true, autoInitPush: true });
-  window.__app = { get S() { return S; }, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, toggleCardLock, isCardLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
+  window.__app = { get S() { return S; }, isFTTB, isPB, jobTypeTags, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, toggleCardLock, isCardLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
 }
 
 
