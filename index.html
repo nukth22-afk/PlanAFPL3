@@ -5318,8 +5318,23 @@ function flushPendingSettingsSyncOnExit() {
 window.addEventListener("beforeunload", flushPendingSettingsSyncOnExit);
 window.addEventListener("pagehide", flushPendingSettingsSyncOnExit);
 
-/* ===== Automatic Background Access Logger (Google Sheets) ===== */
+/* ===== Automatic Universal Activity & Access Logger (Google Sheets) ===== */
 const GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzqYiuO-dNuKPiMLBDGNO2ZZQYOH8bqjs19n_ON_7OH1NQmxQqXGdYBm2K_gSvVWR9f4w/exec";
+
+const LOGGER_TAB_SESSION_ID = "u_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now().toString(36);
+function getLoggerIds() {
+  let deviceId = "";
+  try {
+    deviceId = localStorage.getItem("applet_device_id") || "";
+    if (!deviceId) {
+      deviceId = "dev_" + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem("applet_device_id", deviceId);
+    }
+  } catch (e) {
+    deviceId = LOGGER_TAB_SESSION_ID;
+  }
+  return { sessionId: LOGGER_TAB_SESSION_ID, deviceId: deviceId };
+}
 
 function getClientEnvironment() {
   const ua = (typeof navigator !== "undefined" && navigator.userAgent) || "";
@@ -5340,54 +5355,380 @@ function getClientEnvironment() {
   return { os: os + (isMobile ? " (Mobile)" : ""), browser: browser };
 }
 
-function autoLogVisitToGoogleSheet(sessionId, deviceId) {
-  try {
-    const env = getClientEnvironment();
-    const payload = {
-      sessionId: sessionId || "-",
-      deviceId: deviceId || "-",
-      os: env.os,
-      browser: env.browser,
-      action: "เข้าใช้งานหน้าเว็บ (Visit)",
-      url: window.location.href,
-      note: "เปิดใช้งานเว็บ (บันทึกอัตโนมัติ)",
-      onlineCount: window._currentOnlineUsers || 1
-    };
+const _activityLogQueue = [];
+let _activityLogSending = false;
+let _lastActivitySig = "";
+let _lastActivityTs = 0;
 
-    fetch(GOOGLE_SHEET_WEB_APP_URL, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    }).catch(function() {
-      try {
-        const getUrl = GOOGLE_SHEET_WEB_APP_URL + "?action=" + encodeURIComponent(payload.action) +
-          "&sessionId=" + encodeURIComponent(payload.sessionId) +
-          "&deviceId=" + encodeURIComponent(payload.deviceId) +
-          "&os=" + encodeURIComponent(payload.os) +
-          "&browser=" + encodeURIComponent(payload.browser) +
-          "&url=" + encodeURIComponent(payload.url);
-        const img = new Image();
-        img.src = getUrl;
-      } catch(e){}
-    });
-  } catch(err){}
+function _tabDisplayName(t) {
+  const m = {
+    plan: "แพลนช่าง",
+    unassigned: "งานที่จัดไม่ได้",
+    review: "รอตรวจสอบ",
+    map: "แผนที่เส้นทาง",
+    settings: "ตั้งค่า / สำรองข้อมูล"
+  };
+  return m[t] || t || "-";
+}
+
+function _buildActivityPayload(action, detailNote) {
+  const ids = getLoggerIds();
+  const env = getClientEnvironment();
+  const curTab = typeof tab !== "undefined" ? _tabDisplayName(tab) : "-";
+  const d = (typeof curDate === "function" ? curDate() : "") || (typeof S !== "undefined" && S && S.selectedDate) || "-";
+  const online = window._currentOnlineUsers || 1;
+  const ctxParts = ["แท็บ: " + curTab, "วันที่: " + d, "ออนไลน์: " + online + " คน"];
+  if (detailNote) ctxParts.push(String(detailNote));
+  return {
+    sessionId: ids.sessionId,
+    deviceId: ids.deviceId,
+    os: env.os,
+    browser: env.browser,
+    action: String(action || "ใช้งานระบบ").replace(/\s+/g, " ").trim().slice(0, 140),
+    url: window.location.href,
+    note: ctxParts.join(" | ").replace(/\s+/g, " ").trim().slice(0, 320),
+    onlineCount: online
+  };
+}
+
+function _sendSingleActivityPayload(payload, useBeacon) {
+  const bodyStr = JSON.stringify(payload);
+  if (useBeacon && typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+    try {
+      const ok = navigator.sendBeacon(GOOGLE_SHEET_WEB_APP_URL, new Blob([bodyStr], { type: "text/plain;charset=utf-8" }));
+      if (ok) return Promise.resolve(true);
+    } catch (e) {}
+  }
+  return fetch(GOOGLE_SHEET_WEB_APP_URL, {
+    method: "POST",
+    mode: "no-cors",
+    keepalive: true,
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: bodyStr
+  }).then(function() { return true; }).catch(function() {
+    try {
+      const getUrl = GOOGLE_SHEET_WEB_APP_URL + "?action=" + encodeURIComponent(payload.action) +
+        "&sessionId=" + encodeURIComponent(payload.sessionId) +
+        "&deviceId=" + encodeURIComponent(payload.deviceId) +
+        "&os=" + encodeURIComponent(payload.os) +
+        "&browser=" + encodeURIComponent(payload.browser) +
+        "&note=" + encodeURIComponent(payload.note) +
+        "&url=" + encodeURIComponent(payload.url);
+      const img = new Image();
+      img.src = getUrl;
+    } catch (e) {}
+    return false;
+  });
+}
+
+async function _flushActivityLogQueue() {
+  if (_activityLogSending) return;
+  _activityLogSending = true;
+  try {
+    while (_activityLogQueue.length > 0) {
+      const item = _activityLogQueue.shift();
+      await _sendSingleActivityPayload(item, false);
+      if (_activityLogQueue.length > 0) {
+        await new Promise(function(r) { setTimeout(r, 120); });
+      }
+    }
+  } finally {
+    _activityLogSending = false;
+    if (_activityLogQueue.length > 0) _flushActivityLogQueue();
+  }
+}
+
+function logUserActivityToGoogleSheet(action, detailNote, opts) {
+  try {
+    opts = opts || {};
+    const payload = _buildActivityPayload(action, detailNote);
+    const sig = payload.action + "|" + (detailNote || "");
+    const now = Date.now();
+    if (!opts.force && sig === _lastActivitySig && now - _lastActivityTs < 300) return;
+    _lastActivitySig = sig;
+    _lastActivityTs = now;
+    if (opts.immediate) {
+      _sendSingleActivityPayload(payload, !!opts.beacon);
+      return;
+    }
+    if (_activityLogQueue.length >= 150) _activityLogQueue.shift();
+    _activityLogQueue.push(payload);
+    _flushActivityLogQueue();
+  } catch (err) {}
+}
+
+function autoLogVisitToGoogleSheet() {
+  if (window.__visitLoggedToSheet) return;
+  window.__visitLoggedToSheet = true;
+  logUserActivityToGoogleSheet("เข้าใช้งานหน้าเว็บ (Visit)", "เปิดใช้งานเว็บ (บันทึกอัตโนมัติ)", { force: true });
+}
+
+function _lookupJobLabel(k) {
+  try {
+    const j = typeof S !== "undefined" && S && S.jobs && S.jobs[k];
+    if (!j) return k || "";
+    const d = (typeof effDistrict === "function" ? effDistrict(j) : "") || "";
+    return (j.access || k) + (j.req ? " (" + j.req + ")" : "") + (d ? " · " + d : "");
+  } catch (e) { return k || ""; }
+}
+
+function _lookupTechName(tid) {
+  try {
+    const tc = typeof S !== "undefined" && S && S.techs && S.techs.find(x => x.id === tid);
+    return tc ? tc.name : (tid || "");
+  } catch (e) { return tid || ""; }
+}
+
+function _describeClickedElement(el) {
+  if (!el) return null;
+  const ds = el.dataset || {};
+  const act = ds.act || "";
+  const rawTxt = (el.textContent || "").replace(/\s+/g, " ").trim();
+  const label = rawTxt || el.getAttribute("aria-label") || el.title || el.id || act || el.tagName;
+  const shortLabel = label.length > 70 ? label.slice(0, 67) + "..." : label;
+  const d = (typeof curDate === "function" ? curDate() : "") || "";
+
+  if (act === "tab") {
+    return { action: "สลับแท็บ: " + _tabDisplayName(ds.tab), note: "เลือกเมนู " + shortLabel };
+  }
+  if (act === "job") {
+    const jl = _lookupJobLabel(ds.k);
+    return { action: "เปิดดูรายละเอียดใบงาน: " + jl, note: "กดจากการ์ด/รายการงาน" };
+  }
+  if (act === "cardLock" || act === "cardLockModal") {
+    const jl = _lookupJobLabel(ds.k);
+    const jd = (typeof S !== "undefined" && S && S.jobs && S.jobs[ds.k] && S.jobs[ds.k].date) || d;
+    const lockedNow = jd && typeof isCardLocked === "function" ? isCardLocked(jd, ds.k) : false;
+    return {
+      action: (lockedNow ? "ปลดล็อกการ์ดงาน: " : "ล็อกการ์ดงาน: ") + jl,
+      note: act === "cardLockModal" ? "กดปุ่มจากหน้าต่างรายละเอียดใบงาน" : "กดปุ่มกุญแจมุมขวาบนของการ์ด"
+    };
+  }
+  if (act === "techLock") {
+    const tName = _lookupTechName(ds.t);
+    const lockedNow = d && typeof isTechLocked === "function" ? isTechLocked(d, ds.t) : false;
+    return { action: (lockedNow ? "ปลดล็อกงานช่างทั้งแถว: " : "ล็อกงานช่างทั้งแถว: ") + tName, note: "" };
+  }
+  if (act === "dayoff") {
+    const tName = _lookupTechName(ds.t);
+    const isOffNow = !!(typeof S !== "undefined" && S && S.dayOff && d && S.dayOff[d] && S.dayOff[d][ds.t]);
+    return { action: (isOffNow ? "ยกเลิกวันหยุดช่าง: " : "ตั้งวันหยุดช่าง: ") + tName, note: "" };
+  }
+  if (act === "clearTech" || act === "clearTechDo") {
+    return { action: (act === "clearTechDo" ? "ยืนยันล้างแพลนช่าง: " : "กดล้างแพลนช่าง: ") + _lookupTechName(ds.t), note: "" };
+  }
+  if (act === "cellPick") {
+    return { action: "เปิดเลือกงานลงช่อง: " + _lookupTechName(ds.t) + " Slot " + (ds.s || ""), note: "" };
+  }
+  if (act === "cellPut" || act === "fillPick" || act === "approveFar" || act === "acceptDouble") {
+    return { action: "จัดงานลงตาราง: " + _lookupJobLabel(ds.k), note: "ลงช่อง " + _lookupTechName(ds.t) + " Slot " + (ds.s || "") + " (" + act + ")" };
+  }
+  if (act === "pickGo") {
+    const pkTech = document.getElementById("pkTech")?.value;
+    const pkSlot = document.getElementById("pkSlot")?.value;
+    return { action: "ยืนยันจัด/ย้ายงาน: " + _lookupJobLabel(ds.k), note: "ไปที่ " + _lookupTechName(pkTech) + " Slot " + (pkSlot || "") };
+  }
+  if (act === "unitPick") {
+    return { action: "เปิดหน้าต่างเลือกช่าง/Slot: " + _lookupJobLabel(ds.k), note: "" };
+  }
+  if (act === "unassign" || act === "unassignOne") {
+    return { action: (act === "unassignOne" ? "นำเฉพาะใบนี้ออกจากแพลน: " : "นำงานออกจากแพลน: ") + _lookupJobLabel(ds.k), note: "" };
+  }
+  if (act === "restoreRemoved") {
+    return { action: "นำงานกลับเข้าแพลน: " + _lookupJobLabel(ds.k), note: "ช่องเดิม " + _lookupTechName(ds.t) + " Slot " + (ds.s || "") };
+  }
+  if (act === "release") {
+    return { action: "ให้ระบบจัดงานที่นำออกใหม่: " + _lookupJobLabel(ds.k), note: "" };
+  }
+  if (act === "dblSuggest") {
+    return { action: "เปิดแนะนำงานเบิ้ล: " + _lookupTechName(ds.t) + " Slot " + (ds.s || ""), note: "" };
+  }
+  if (act === "copyJobText") {
+    return { action: "คัดลอกข้อความการ์ดงาน", note: ds.copy || "" };
+  }
+  if (act === "mapSetMode") {
+    return { action: "แผนที่ - เปลี่ยนโหมด: " + (ds.mode === "real" ? "ภาพแผนที่จริง" : "ผังไดอะแกรม SVG"), note: "" };
+  }
+  if (act === "mapSetLayer") {
+    return { action: "แผนที่ - เปลี่ยนชั้นข้อมูล: " + (ds.layer === "satellite" ? "ภาพดาวเทียม" : "แผนที่ถนน"), note: "" };
+  }
+  if (act === "mapToggleTraffic") {
+    return { action: "แผนที่ - สลับการแสดงสภาพจราจร", note: "" };
+  }
+  if (act === "mapFitBounds") {
+    return { action: "แผนที่ - กดซูมพอดีทุกจุดงาน", note: "" };
+  }
+  if (act === "calcRealRoutes") {
+    return { action: "แผนที่ - กดคำนวณเส้นทางจริง", note: "" };
+  }
+  if (act === "clearRouteCache") {
+    return { action: "แผนที่ - กดล้างแคชเส้นทาง", note: "" };
+  }
+  if (act === "exportMyMaps") {
+    return { action: "ส่งออก CSV สำหรับ Google My Maps", note: "" };
+  }
+  if (act === "techMapInfo") {
+    return { action: "แผนที่ - กดดูข้อมูลบ้านช่าง: " + _lookupTechName(ds.t), note: "" };
+  }
+  if (act === "closeModal") {
+    return { action: "ปิดหน้าต่างป็อปอัป (Modal)", note: "" };
+  }
+  if (act === "askBtn") {
+    return { action: "กดตัวเลือกป็อปอัป: " + shortLabel, note: "" };
+  }
+  if (act) {
+    const extra = ds.k ? _lookupJobLabel(ds.k) : ds.t ? _lookupTechName(ds.t) : ds.d ? ("วันที่ " + ds.d) : "";
+    return { action: "กดปุ่ม: " + shortLabel + " [" + act + "]", note: extra };
+  }
+  if (el.id === "btnUndo") {
+    const lastUndo = typeof undoStack !== "undefined" && undoStack.length ? undoStack[undoStack.length - 1].label : "";
+    return { action: "กดปุ่ม: " + shortLabel, note: lastUndo ? ("ย้อนกลับรายการ: " + lastUndo) : "ไม่มีรายการย้อนกลับ" };
+  }
+  if (el.id === "btnExport") {
+    return { action: "กดปุ่ม: " + shortLabel, note: "ส่งออกไฟล์ Excel (.xlsx)" };
+  }
+  if (el.tagName === "A") {
+    const href = el.getAttribute("href") || "";
+    return { action: "กดลิงก์: " + shortLabel, note: href.length > 140 ? href.slice(0, 137) + "..." : href };
+  }
+  return { action: "กดปุ่ม: " + shortLabel, note: el.id ? ("id=" + el.id) : "" };
+}
+
+function initUniversalActivityLogger() {
+  if (window.__universalLoggerInit) return;
+  window.__universalLoggerInit = true;
+
+  // 1. Capture ALL trusted clicks on any button, tab, card, link, toggle, or interactive element
+  document.addEventListener("click", function(e) {
+    if (!e.isTrusted) return;
+    const el = e.target && e.target.closest && e.target.closest('button, a, [role="button"], [data-act], .chip, summary, input[type="button"], input[type="submit"], input[type="reset"]');
+    if (!el) return;
+    const info = _describeClickedElement(el);
+    if (info) logUserActivityToGoogleSheet(info.action, info.note);
+  }, true);
+
+  // 2. Capture ALL form/input/select/checkbox/file changes
+  document.addEventListener("change", function(e) {
+    const t = e.target;
+    if (!t) return;
+    if (t.id === "dateIn" || t.id === "dateSel") {
+      logUserActivityToGoogleSheet("เปลี่ยนวันที่จัดแพลน: " + (t.value || "-"), "จาก #" + t.id);
+      return;
+    }
+    if (t.type === "file" && t.files && t.files[0]) {
+      const f = t.files[0];
+      logUserActivityToGoogleSheet("เลือกไฟล์นำเข้า: " + f.name, "ขนาด " + Math.round(f.size / 1024) + " KB · #" + (t.id || "file"));
+      return;
+    }
+    const ds = t.dataset || {};
+    const chg = ds.chg || "";
+    if (chg) {
+      let valStr = t.type === "checkbox" ? (t.checked ? "เปิด (✓)" : "ปิด") : String(t.value || "");
+      if (valStr.length > 80) valStr = valStr.slice(0, 77) + "...";
+      const chgLabels = {
+        settingRealRoutes: "ตั้งค่าใช้เส้นทางจริง Google Maps",
+        tech: "แก้ไขข้อมูลช่าง: " + _lookupTechName(ds.t) + " (" + (ds.f || "") + ")",
+        techActive: "เปิด/ปิดใช้งานช่าง: " + _lookupTechName(ds.t),
+        dayoff: "เปลี่ยนวันหยุดช่าง: " + _lookupTechName(ds.t),
+        bigTitles: "แก้ไขรายการ Title ทีมใหญ่",
+        exPkgs: "แก้ไขแพ็กเกจที่คัดออก",
+        techCross: "ตั้งค่าไม่ข้ามแม่น้ำ: " + _lookupTechName(ds.t),
+        dblSlot: "ตั้งค่า Slot งานเบิ้ล (S" + (ds.s || "") + ")",
+        startPick: "เลือกเขตงานแรกของช่าง: " + _lookupTechName(ds.t),
+        setting: "แก้ไขตั้งค่า: " + (ds.f || ""),
+        dover: "กำหนดเขตลูกค้าเอง: " + _lookupJobLabel(ds.k),
+        map: "จับคู่คอลัมน์นำเข้า (" + (ds.f || "") + ")",
+        sheet: "เลือกชีตในไฟล์ Excel",
+        maptog: "แสดง/ซ่อนช่างบนแผนที่: " + _lookupTechName(ds.t),
+        pdate: "เปลี่ยนวันที่นำเข้าไฟล์"
+      };
+      logUserActivityToGoogleSheet(chgLabels[chg] || ("แก้ไขข้อมูล (" + chg + ")"), "ค่าใหม่: " + valStr);
+      return;
+    }
+    const fldLabel = t.getAttribute("aria-label") || t.placeholder || t.id || t.name || t.tagName;
+    let val = t.type === "checkbox" || t.type === "radio" ? (t.checked ? "เลือก" : "ไม่เลือก") : String(t.value || "");
+    if (val.length > 80) val = val.slice(0, 77) + "...";
+    logUserActivityToGoogleSheet("เปลี่ยนค่าช่องข้อมูล: " + fldLabel, "ค่าใหม่: " + val);
+  }, true);
+
+  // 3. Capture debounced search / text inputs (#q, #cpq)
+  let searchTimer = null;
+  document.addEventListener("input", function(e) {
+    const t = e.target;
+    if (!t || (t.id !== "q" && t.id !== "cpq")) return;
+    clearTimeout(searchTimer);
+    const val = String(t.value || "").trim();
+    const id = t.id;
+    searchTimer = setTimeout(function() {
+      logUserActivityToGoogleSheet(
+        val ? ('ค้นหา: "' + (val.length > 50 ? val.slice(0, 47) + "..." : val) + '"') : "ล้างช่องค้นหา",
+        "ช่อง #" + id
+      );
+    }, 900);
+  }, true);
+
+  // 4. Capture keyboard shortcuts (Esc to close modal, Enter/Space on job chip)
+  document.addEventListener("keydown", function(e) {
+    if (!e.isTrusted) return;
+    const modal = document.getElementById("modal");
+    if (e.key === "Escape" && modal && !modal.hidden) {
+      logUserActivityToGoogleSheet("ปิดหน้าต่างป็อปอัปด้วยปุ่ม Esc", "");
+    } else if ((e.key === "Enter" || e.key === " ") && e.target && e.target.classList && e.target.classList.contains("chip")) {
+      logUserActivityToGoogleSheet("กดคีย์บอร์ดเปิดดูใบงาน: " + _lookupJobLabel(e.target.dataset?.key), "key=" + e.key);
+    }
+  }, true);
+
+  // 5. Capture Drag & Drop results
+  let pendingDragKey = null;
+  document.addEventListener("dragstart", function(e) {
+    const el = e.target && e.target.closest && e.target.closest("[data-key]");
+    pendingDragKey = el ? el.dataset.key : null;
+  }, true);
+  document.addEventListener("drop", function(e) {
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length && !pendingDragKey) {
+      logUserActivityToGoogleSheet("ลากไฟล์มาวางเพื่อนำเข้า: " + e.dataTransfer.files[0].name, "");
+      return;
+    }
+    const slotCell = e.target && e.target.closest && e.target.closest("td.slot[data-tech]");
+    const dropZone = e.target && e.target.closest && e.target.closest("[data-drop]");
+    if (slotCell && pendingDragKey) {
+      logUserActivityToGoogleSheet(
+        "ลากวางงานลงตาราง: " + _lookupJobLabel(pendingDragKey),
+        "ไปที่ " + _lookupTechName(slotCell.dataset.tech) + " Slot " + (slotCell.dataset.slot || "")
+      );
+    } else if (dropZone && pendingDragKey) {
+      logUserActivityToGoogleSheet("ลากวางงานออกนอกแพลน: " + _lookupJobLabel(pendingDragKey), "โซน " + (dropZone.dataset.drop || ""));
+    }
+    pendingDragKey = null;
+  }, true);
+  document.addEventListener("dragend", function() { pendingDragKey = null; }, true);
+
+  // 6. Flush remaining queued logs & record Leave event on page close
+  let leaveLogged = false;
+  function flushLogsOnUnload() {
+    if (leaveLogged) return;
+    leaveLogged = true;
+    try {
+      while (_activityLogQueue.length > 0) {
+        _sendSingleActivityPayload(_activityLogQueue.shift(), true);
+      }
+      _sendSingleActivityPayload(
+        _buildActivityPayload("ออกจากหน้าเว็บ / ปิดแท็บ (Leave)", "บันทึกอัตโนมัติก่อนออกจากหน้า"),
+        true
+      );
+    } catch (e) {}
+  }
+  window.addEventListener("beforeunload", flushLogsOnUnload);
+  window.addEventListener("pagehide", flushLogsOnUnload);
 }
 
 function initPresenceTracker() {
   // Generate a distinct session ID for every individual open tab/window
-  const tabSessionId = "u_" + Math.random().toString(36).substring(2, 9) + "_" + Date.now().toString(36);
-  let deviceId = "";
-  try {
-    deviceId = localStorage.getItem("applet_device_id") || "";
-    if (!deviceId) {
-      deviceId = "dev_" + Math.random().toString(36).substring(2, 9);
-      localStorage.setItem("applet_device_id", deviceId);
-    }
-  } catch (e) {
-    deviceId = tabSessionId;
-  }
-  try { autoLogVisitToGoogleSheet(tabSessionId, deviceId); } catch (e) {}
+  const ids = getLoggerIds();
+  const tabSessionId = ids.sessionId;
+  const deviceId = ids.deviceId;
+  try { autoLogVisitToGoogleSheet(); } catch (e) {}
+  try { initUniversalActivityLogger(); } catch (e) {}
 
   // 150s TTL + ~20s heartbeats survives Chrome/Edge background tab throttling (~60s)
   const HEARTBEAT_MS = 20000;
