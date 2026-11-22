@@ -1134,10 +1134,17 @@ async function readAnyFile(file) {
 }
 
 /* ===== XLSX writer ===== */
-const X_STYLE = { hdr: 1, title: 2, off: 3, ok: 4, warn: 5, risk: 6, empty: 7, cell: 8, bold: 9 };
+const X_STYLE = {
+  hdr: 1, title: 2, off: 3, ok: 4, warn: 5, risk: 6, empty: 7, cell: 8, bold: 9,
+  pBanner: 10, pDate: 11, pPeach: 12, pWhite: 13, pOff: 14,
+  tBlueTop: 15, tBlueMid: 16, tBlueBot: 17,
+  tGreenTop: 18, tGreenMid: 19, tGreenBot: 20,
+  tOrangeTop: 21, tOrangeMid: 22, tOrangeBot: 23,
+  tRedTop: 24, tRedMid: 25, tRedBot: 26
+};
 const xe = s => String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const colName = i => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
-const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="4"><font><sz val="11"/><name val="Tahoma"/></font><font><b/><sz val="11"/><name val="Tahoma"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Tahoma"/></font><font><b/><sz val="14"/><name val="Tahoma"/></font></fonts><fills count="8"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE5E7EB"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF000000"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD1FAE5"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFEE2E2"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF9CA3AF"/></left><right style="thin"><color rgb="FF9CA3AF"/></right><top style="thin"><color rgb="FF9CA3AF"/></top><bottom style="thin"><color rgb="FF9CA3AF"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="10"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="49" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="6" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="7" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="6"><font><sz val="11"/><name val="Tahoma"/></font><font><b/><sz val="11"/><name val="Tahoma"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Tahoma"/></font><font><b/><sz val="14"/><name val="Tahoma"/></font><font><b/><sz val="10"/><color rgb="FF000000"/><name val="Tahoma"/></font><font><sz val="10"/><color rgb="FF000000"/><name val="Tahoma"/></font></fonts><fills count="17"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE5E7EB"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF000000"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFD1FAE5"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFEE2E2"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFF8C7A"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFCE4D6"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF999999"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF7EC0FF"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFCCFFCC"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF4B084"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE06666"/></patternFill></fill></fills><borders count="6"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF9CA3AF"/></left><right style="thin"><color rgb="FF9CA3AF"/></right><top style="thin"><color rgb="FF9CA3AF"/></top><bottom style="thin"><color rgb="FF9CA3AF"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="27"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="49" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="6" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="7" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="49" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="49" fontId="4" fillId="8" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="49" fontId="4" fillId="9" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="49" fontId="5" fillId="10" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="11" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="12" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="49" fontId="4" fillId="13" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="13" borderId="4" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="13" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="4" fillId="14" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="14" borderId="4" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="14" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="4" fillId="15" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="15" borderId="4" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="15" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="4" fillId="16" borderId="3" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="16" borderId="4" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="49" fontId="5" fillId="16" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 async function buildXlsx(sheets) {
   const zip = new JSZip();
   zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((s, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`);
@@ -1155,7 +1162,8 @@ async function buildXlsx(sheets) {
         if (v === '' || v == null) return `<c r="${ref}" s="${st}"/>`;
         return `<c r="${ref}" s="${st}" t="inlineStr"><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
       }).join('');
-      return `<row r="${ri + 1}">${cells}</row>`;
+      const ht = s.rowHeights && s.rowHeights[ri] ? ` ht="${s.rowHeights[ri]}" customHeight="1"` : '';
+      return `<row r="${ri + 1}"${ht}>${cells}</row>`;
     }).join('');
     const widths = s.widths ? `<cols>${s.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
     const merges = s.merges && s.merges.length ? `<mergeCells count="${s.merges.length}">${s.merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
@@ -1877,6 +1885,8 @@ let isCalculatingRoutes = false;
 let routeCalcProgress = { total: 0, done: 0 };
 let isAutoFetchingMapPolylines = false;
 const autoPolyAttemptedKeys = new Set();
+let isAutoFetchingPlanRoutes = false;
+const autoPlanRouteAttemptedKeys = new Set();
 
 function hasRealRoadPolyline(cached) {
   return !!(cached && cached.polyline && cached.polyline.length > 5 && cached.source !== "fallback_estimate" && cached.source !== "road_interpolated");
@@ -1901,7 +1911,7 @@ function collectDateRouteLegs(a, forceAll) {
   a.techs.forEach(t => {
     const L = a.perTech[t.id] ? a.perTech[t.id].list : [];
     const pts = L.filter(e => e.u && e.u.coord);
-    const home = !t.picked ? techHomeCoord(t) : null;
+    const home = techHomeCoord(t);
     if (home && pts.length) addLeg(home, pts[0].u.coord);
     for (let i = 1; i < pts.length; i++) {
       addLeg(pts[i - 1].u.coord, pts[i].u.coord);
@@ -2024,10 +2034,30 @@ async function ensureMapPolylinesLoaded(a) {
     const updated = await fetchRoutePolylinesBatch(missing, null, false);
     if (updated > 0) {
       save();
-      if (tab === "map" && curDate() === a.date) render();
+      if ((tab === "map" || tab === "plan") && curDate() === a.date) render();
     }
   } finally {
     isAutoFetchingMapPolylines = false;
+  }
+}
+
+async function ensurePlanRoutesLoaded(a) {
+  if (!a || S.settings.useRealRoutes === false || isAutoFetchingPlanRoutes || isCalculatingRoutes) return;
+  const pairs = collectAssignedRoutePairs(a.date).filter(p => {
+    const k = routeKey(p.origin, p.destination);
+    return k && !autoPlanRouteAttemptedKeys.has(k);
+  });
+  if (!pairs.length) return;
+  pairs.forEach(p => {
+    const k = routeKey(p.origin, p.destination);
+    if (k) autoPlanRouteAttemptedKeys.add(k);
+  });
+  isAutoFetchingPlanRoutes = true;
+  try {
+    const updated = await fetchRealRoadMatrix(pairs);
+    if (updated > 0 && curDate() === a.date) render();
+  } finally {
+    isAutoFetchingPlanRoutes = false;
   }
 }
 
@@ -2045,7 +2075,7 @@ async function calculateRealRoutesForDate(date) {
     return;
   }
 
-  pairsToFetch.forEach(p => autoPolyAttemptedKeys.delete(p.id));
+  pairsToFetch.forEach(p => { autoPolyAttemptedKeys.delete(p.id); autoPlanRouteAttemptedKeys.delete(p.id); });
   isCalculatingRoutes = true;
   routeCalcProgress = { total: pairsToFetch.length, done: 0 };
   render();
@@ -2269,6 +2299,8 @@ function collectPrePlanRoutePairs(date) {
       });
       fixedList.sort((a, b) => (a.u.start - b.u.start) || (a.slot - b.slot));
       if (fixedList.length) {
+        const home = techHomeCoord(t);
+        if (home && fixedList[0].u.coord) addPair(home, fixedList[0].u.coord);
         if (zRef && fixedList[0].u.coord) addPair(zRef, fixedList[0].u.coord);
         for (let i = 1; i < fixedList.length; i++) {
           if (fixedList[i - 1].u.coord && fixedList[i].u.coord) {
@@ -2281,10 +2313,14 @@ function collectPrePlanRoutePairs(date) {
 
   avail.forEach(t => {
     const zRef = zoneRef(t);
-    if (!zRef) return;
+    const home = techHomeCoord(t);
+    if (!zRef && !home) return;
     coordUnits.forEach(u => {
       if (u.reasons.length) return;
-      if (haversine(zRef, u.coord) <= startLim) addPair(zRef, u.coord);
+      if (zRef && haversine(zRef, u.coord) <= startLim) {
+        addPair(zRef, u.coord);
+        if (home) addPair(home, u.coord);
+      }
     });
     if (plan && plan.assign) {
       const fixedList = units.filter(u => { const a = unitAsg(plan, u); return a && a.tech === t.id && u.coord; })
@@ -2334,7 +2370,9 @@ function collectAssignedRoutePairs(date) {
   a.techs.forEach(t => {
     const L = (a.perTech[t.id] && a.perTech[t.id].list) || [];
     if (!L.length) return;
+    const home = techHomeCoord(t);
     const zRef = zoneRef(t);
+    if (home && L[0].u.coord) addPair(home, L[0].u.coord);
     if (zRef && L[0].u.coord) addPair(zRef, L[0].u.coord);
     for (let i = 1; i < L.length; i++) {
       if (L[i - 1].u.coord && L[i].u.coord) addPair(L[i - 1].u.coord, L[i].u.coord);
@@ -2389,6 +2427,20 @@ function zoneDistInfo(t, u) {
   }
   const d = haversine(ref, p);
   return { km: d, min: travelMin(d), direct: d, real: false, hasHome, ref };
+}
+function homeToJobDistInfo(t, u) {
+  const home = techHomeCoord(t);
+  if (home) {
+    const p = u && (u.coord || (u.district && DISTRICTS[u.district] ? DISTRICTS[u.district] : null));
+    if (!p) return null;
+    if (u.coord && S.settings.useRealRoutes !== false) {
+      const m = getRealRoadMetric(home, u.coord);
+      if (m) return { km: m.km, min: m.min, direct: m.direct, real: m.real, hasHome: true, ref: home };
+    }
+    const d = haversine(home, p);
+    return { km: d, min: travelMin(d), direct: d, real: false, hasHome: true, ref: home };
+  }
+  return zoneDistInfo(t, u);
 }
 function zoneDist(t, u) {
   const zi = zoneDistInfo(t, u);
@@ -2630,7 +2682,7 @@ function analyze(date) {
     else if (nat !== e.slot) bump(e, 'risk', 'วางต่างจาก Slot ตามเวลานัด (นัด Slot ' + nat + ') ต้องแจ้งลูกค้าเปลี่ยนเวลา');
     u.reasons.forEach(r => bump(e, 'warn', r));
     if (!u.coord) bump(e, 'warn', 'ไม่มีพิกัดที่ใช้ได้ ไม่สามารถคำนวณระยะทางได้');
-    const t = techById[e.tech], zi = (e.slot === 1 || perTech[e.tech].list[0] === e) ? zoneDistInfo(t, u) : null;
+    const t = techById[e.tech], zi = (e.slot === 1 || perTech[e.tech].list[0] === e) ? homeToJobDistInfo(t, u) : null;
     if (zi != null && zi.km > 15) bump(e, 'warn', 'งานแรกของวัน ห่างจาก' + (zi.hasHome ? 'บ้านช่าง' : 'เขตเริ่มงาน "' + t.zone + '"') + (zi.real ? ' ถนน ' + zi.km.toFixed(1) + ' กม. (~' + Math.round(zi.min) + ' น.)' : ' ~' + zi.km.toFixed(0) + ' กม.'));
     if (perTech[e.tech].units > S.settings.maxHouses) bump(e, 'warn', 'ช่างคนนี้มี ' + perTech[e.tech].units + ' หลัง เกินเกณฑ์สูงสุด ' + S.settings.maxHouses + ' หลังต่อวัน (ใบงานหลายใบที่บ้านเดียวกันนับเป็น 1 หลัง)');
     if (klongBlocked(t, u)) bump(e, 'warn', 'งานอยู่คลอง ' + klongOf(u.jobs[0].address) + ' ซึ่งช่างคนนี้ตั้งไว้ว่าไม่รับตั้งแต่คลอง ' + klongLimit(t) + ' ขึ้นไป (ผู้ใช้จัดเอง/ล็อก)');
@@ -3104,6 +3156,8 @@ function render() {
     if (tab === 'map' && a && a.jobs.length) {
       if (realMapMode === 'real') setTimeout(() => mountRealMap(a), 20);
       setTimeout(() => ensureMapPolylinesLoaded(a), 40);
+    } else if (tab === 'plan' && a && a.jobs.length) {
+      setTimeout(() => ensurePlanRoutesLoaded(a), 40);
     }
   } catch (err) {
     console.error('Render error:', err);
@@ -3192,7 +3246,7 @@ function distLine(e, a) {
       t = e.prev.d == null ? '↳ จาก S' + e.prev.fromSlot + ': ไม่มีพิกัด' : e.prev.same ? '↳ Slot เดียวกัน ห่าง ' + e.prev.d.toFixed(1) + ' กม.' : '↳ ห่างจาก S' + e.prev.fromSlot + ' ' + e.prev.d.toFixed(1) + ' กม.';
     }
   } else {
-    const zi = zoneDistInfo(a.techById[e.tech], e.u);
+    const zi = homeToJobDistInfo(a.techById[e.tech], e.u);
     if (zi) {
       const originLbl = zi.hasHome ? 'บ้านช่าง' : 'เขตเริ่มงาน';
       if (zi.real) {
@@ -3268,7 +3322,7 @@ function tableHtml(a) {
           ? '<br><small class="muted" title="ระยะทางและเวลาขับรถจริงจาก Google Maps">เส้นทางรวม ' + rk.roadKm.toFixed(1) + ' กม. (~' + Math.round(rk.roadMin || 0) + ' น.)</small>'
           : '<br><small class="muted" title="ระยะเส้นตรง">เส้นทางรวม ' + rk.directKm.toFixed(1) + ' กม.</small>')
       : '';
-    t += '<td class="zone">' + (off ? h(tc.homeZone || tc.zone) : '<div>ประจำ: ' + h(tc.homeZone || tc.zone) + (homeRef(tc) ? ' <small title="งานแรกยึดตามพิกัดบ้านช่าง">📍พิกัดบ้าน</small>' : '') + '</div><label class="small muted">งานแรกวันนี้ <select data-chg="startPick" data-t="' + tc.id + '" aria-label="เลือกเขตงานแรกของ ' + h(tc.name) + '"><option value="">ใช้เขตประจำ</option>' + pickChoices(a.date, tc).map(c => '<option value="' + h(c.d) + '"' + (tc.picked && tc.zone === c.d ? ' selected' : '') + '>' + h(c.d) + ' (' + c.n + ' งาน' + (c.km != null ? ', ห่างเขตประจำ ~' + c.km.toFixed(0) + ' กม.' : '') + ')</option>').join('') + '</select></label>') + '</td><td>' + (off ? pill('off', 'หยุด', '■') : pill('ok', 'ทำงาน', '✓')) + '</td><td class="num">' + (off ? '-' : pt.count + (pt.units !== pt.count ? ' <small>(' + pt.units + ' จุด)</small>' : '') + rkHtml) + '</td><td>' + (off ? '-' : risk ? pill('risk', 'เสี่ยง ' + risk, '✖') + (warn ? ' ' + pill('warn', warn, '⚠') : '') : warn ? pill('warn', 'รอตรวจ ' + warn, '⚠') : pt.count ? pill('ok', 'ผ่าน', '✓') : '<span class="muted">ว่าง</span>') + '</td></tr>';
+    t += '<td class="zone">' + (off ? h(tc.homeZone || tc.zone) : '<div>ประจำ: ' + h(tc.homeZone || tc.zone) + (techHomeCoord(tc) ? ' <small title="ระยะงานแรกคำนวณจริงจากพิกัดบ้านช่าง">📍พิกัดบ้าน</small>' : '') + '</div><label class="small muted">งานแรกวันนี้ <select data-chg="startPick" data-t="' + tc.id + '" aria-label="เลือกเขตงานแรกของ ' + h(tc.name) + '"><option value="">ใช้เขตประจำ</option>' + pickChoices(a.date, tc).map(c => '<option value="' + h(c.d) + '"' + (tc.picked && tc.zone === c.d ? ' selected' : '') + '>' + h(c.d) + ' (' + c.n + ' งาน' + (c.km != null ? ', ห่างเขตประจำ ~' + c.km.toFixed(0) + ' กม.' : '') + ')</option>').join('') + '</select></label>') + '</td><td>' + (off ? pill('off', 'หยุด', '■') : pill('ok', 'ทำงาน', '✓')) + '</td><td class="num">' + (off ? '-' : pt.count + (pt.units !== pt.count ? ' <small>(' + pt.units + ' จุด)</small>' : '') + rkHtml) + '</td><td>' + (off ? '-' : risk ? pill('risk', 'เสี่ยง ' + risk, '✖') + (warn ? ' ' + pill('warn', warn, '⚠') : '') : warn ? pill('warn', 'รอตรวจ ' + warn, '⚠') : pt.count ? pill('ok', 'ผ่าน', '✓') : '<span class="muted">ว่าง</span>') + '</td></tr>';
   });
   t += '</tbody></table></div><p class="legend muted">ช่องดำ ■ = ช่างหยุด · ✓ เขียว = ผ่านกฎที่ตรวจได้ · ⚠ เหลือง = รอตรวจสอบ · ✖ แดง = เสี่ยง/ผิดกฎ · ช่องเทา = ว่าง (ไม่มีงานสมมติ) · ลากงานจากรายการด้านล่างมาวางที่ช่อง หรือกด ＋ ที่ช่องว่าง · กดที่งานเพื่อดูรายละเอียด</p></section>';
   return t;
@@ -3711,7 +3765,7 @@ function viewMap(a) {
   un.forEach(u => all.push(u.coord));
 
   routes.forEach(r => {
-    if (!mapHidden[r.t.id] && r.home && !r.t.picked && r.pts.length) {
+    if (!mapHidden[r.t.id] && r.home && r.pts.length) {
       const hc = getCachedRoute(r.home, r.pts[0]);
       if (hc && hc.polyline) decodePolyline(hc.polyline).forEach(c => all.push(c));
     }
@@ -3757,7 +3811,7 @@ function viewMap(a) {
     });
 
     routes.forEach(r => {
-      if (mapHidden[r.t.id] || !r.home || r.t.picked || !r.pts.length) return;
+      if (mapHidden[r.t.id] || !r.home || !r.pts.length) return;
       const cached = getCachedRoute(r.home, r.pts[0]);
       if (cached && cached.polyline) {
         const roadPts = decodePolyline(cached.polyline);
@@ -3805,7 +3859,7 @@ function viewMap(a) {
     const seq = L.map((e, i) => {
       let arrow = '';
       if (i === 0) {
-        const zi = zoneDistInfo(r.t, e.u);
+        const zi = homeToJobDistInfo(r.t, e.u);
         if (zi && zi.real) {
           arrow = '<span class="ok" title="จาก' + (zi.hasHome ? 'บ้านช่าง' : 'เขตเริ่มงาน') + '">⌂ ' + (zi.hasHome ? 'บ้านช่าง' : h(r.t.zone || 'เขต')) + ' → ' + zi.km.toFixed(1) + ' กม. (~' + Math.round(zi.min) + ' น.) →</span> ';
         }
@@ -3890,7 +3944,7 @@ async function mountGoogleMaps(container, allPoints, routes, unassigned, a) {
     if (r.home) {
       bounds.extend({ lat: r.home.lat, lng: r.home.lon });
       hasBounds = true;
-      if (!r.t.picked && r.pts.length) {
+      if (r.pts.length) {
         const hc = getCachedRoute(r.home, r.pts[0]);
         let hPath = [{ lat: r.home.lat, lng: r.home.lon }, { lat: r.pts[0].lat, lng: r.pts[0].lon }];
         let hReal = false;
@@ -4087,7 +4141,7 @@ function mountLeafletMap(container, allPoints, routes, unassigned, a) {
     if (mapHidden[r.t.id]) return;
     if (r.home) {
       bounds.extend([r.home.lat, r.home.lon]);
-      if (!r.t.picked && r.pts.length) {
+      if (r.pts.length) {
         const hc = getCachedRoute(r.home, r.pts[0]);
         let hLatlngs = [[r.home.lat, r.home.lon], [r.pts[0].lat, r.pts[0].lon]];
         let hReal = false;
@@ -4678,21 +4732,45 @@ function sheetOf(name, headers, rows, widths) {
   const body = rows.length ? rows : [['ยังไม่มีข้อมูล']];
   return { name, rows: [headers.map(x => ({ v: x, s: 'hdr' }))].concat(body.map(r => r.map(x => (x === '' || x == null || typeof x === 'object') ? x : { v: x, s: 'cell' }))), widths: widths || headers.map(() => 22), freeze: { row: 1 } };
 }
+function fmtTechPhone(t) {
+  const r = String((t && (t.phone || t.tel || t.ref)) || '').trim();
+  if (!r) return '';
+  return /^[689]\d{8}$/.test(r) ? '0' + r : r;
+}
+const TECH_EXCEL_COLOR_BY_ID = { t1: 'tBlue', t2: 'tBlue', t3: 'tGreen', t4: 'tOrange', t5: 'tRed', t6: 'tOrange', t7: 'tGreen', t8: 'tRed' };
+const TECH_EXCEL_COLOR_CYCLE = ['tBlue', 'tBlue', 'tGreen', 'tOrange', 'tRed', 'tOrange', 'tGreen', 'tRed'];
 async function exportExcel() {
   const d = curDate(); if (!d) { toast('ยังไม่มีข้อมูลให้ส่งออก', 'err'); return; }
   const a = analyze(d), p = a.plan || { status: 'draft', log: [], proposal: {}, assign: {} };
   const sheets = [];
-  const hdr = ['ช่าง'].concat(SLOTS.map(s => 'Slot ' + s.n + ' (' + s.label + ')'), ['เขตเริ่มงานช่าง', 'สถานะ', 'จำนวนงาน', 'หมายเหตุตรวจสอบ']);
-  const prow = [[{ v: APP_TITLE, s: 'title' }], ['วันที่แพลน: ' + fmtDateTH(d) + ' (' + d + ')   สถานะ: ' + (STATUS_TXT[p.status] || '')], hdr.map(x => ({ v: x, s: 'hdr' }))];
-  a.techs.forEach(t => {
-    const off = !!a.off[t.id], r = [{ v: t.name, s: 'cell' }];
-    SLOTS.forEach(s => { if (off) r.push({ v: 'หยุด', s: 'off' }); else { const es = a.cells[t.id][s.n]; if (!es.length) r.push({ v: '', s: 'empty' }); else r.push({ v: es.map(cellText).join('\n'), s: es.some(e => e.level === 'risk') ? 'risk' : es.some(e => e.level === 'warn') ? 'warn' : 'ok' }); } });
-    const notes = off ? '' : a.perTech[t.id].list.flatMap(e => e.msgs.filter(m => m.lv === 'warn' || m.lv === 'risk').map(m => (m.lv === 'risk' ? '✖ ' : '⚠ ') + e.u.jobs[0].access + ': ' + m.m)).join('\n');
-    r.push({ v: t.zone, s: 'cell' }, { v: off ? 'หยุด' : 'ทำงาน', s: off ? 'off' : 'cell' }, { v: off ? 0 : a.perTech[t.id].count, s: 'cell' }, { v: notes, s: 'cell' });
-    prow.push(r);
+  const dParts = String(d).split('-');
+  const dateLabel = dParts.length === 3 ? (dParts[2] + '-' + dParts[1] + '-' + dParts[0]) : d;
+  const prow = [
+    [{ v: APP_TITLE, s: 'pBanner' }, { v: '', s: 'pBanner' }, { v: '', s: 'pBanner' }, { v: '', s: 'pBanner' }, { v: '', s: 'pBanner' }, { v: '', s: 'pBanner' }],
+    [{ v: '', s: 'pBanner' }, { v: 'แพลนงานวันที่ ' + dateLabel, s: 'pDate' }, { v: '', s: 'pDate' }, { v: '', s: 'pDate' }, { v: '', s: 'pDate' }, { v: '', s: 'pDate' }],
+    [{ v: 'ชื่อช่าง', s: 'pBanner' }].concat(SLOTS.map(s => ({ v: 'Slot' + s.n + ' ' + s.label.replace(/[–—]/g, '-'), s: 'pBanner' })))
+  ];
+  const rowHeights = [21, 20, 21];
+  a.techs.forEach((t, ti) => {
+    const off = !!a.off[t.id];
+    const colorKey = TECH_EXCEL_COLOR_BY_ID[t.id] || TECH_EXCEL_COLOR_CYCLE[ti % TECH_EXCEL_COLOR_CYCLE.length];
+    const jobStyle = off ? 'pOff' : (ti % 2 === 0 ? 'pPeach' : 'pWhite');
+    const slotLines = SLOTS.map(s => off ? [] : (a.cells[t.id][s.n] || []).flatMap(e => cellText(e).split('\n')).filter(Boolean));
+    const blockRows = Math.max(3, ...slotLines.map(arr => arr.length));
+    const phoneTxt = fmtTechPhone(t);
+    for (let rIdx = 0; rIdx < blockRows; rIdx++) {
+      const colACell = rIdx === 0
+        ? { v: t.name, s: colorKey + 'Top' }
+        : (rIdx === blockRows - 1 ? { v: phoneTxt, s: colorKey + 'Bot' } : { v: '', s: colorKey + 'Mid' });
+      const row = [colACell];
+      SLOTS.forEach((s, si) => {
+        row.push({ v: off ? '' : (slotLines[si][rIdx] || ''), s: jobStyle });
+      });
+      prow.push(row);
+      rowHeights.push(19);
+    }
   });
-  prow.push([]); prow.push(['ช่องสีดำ = ช่างหยุด · เขียว = ผ่านกฎที่ตรวจได้ · เหลือง = รอตรวจสอบ · แดง = เสี่ยง/ผิดกฎ · เทา = ว่าง']);
-  sheets.push({ name: 'Plan', rows: prow, widths: [26, 30, 30, 30, 30, 30, 20, 10, 10, 60], merges: ['A1:J1', 'A2:J2'], freeze: { row: 3, col: 1 } });
+  sheets.push({ name: 'Plan', rows: prow, rowHeights, widths: [24, 36, 36, 36, 36, 36], merges: ['A1:F1', 'B2:F2'], freeze: { row: 3, col: 1 } });
   const jr = (u, extra) => [u.jobs.map(j => j.req).join('\n'), u.jobs.map(j => j.access).join('\n'), u.jobs.map(j => j.title).join('\n'), u.jobs.map(j => j.timeStr || j.planRaw).join('\n'), u.district || 'รอตรวจสอบเขต', u.jobs[0].address].concat(extra);
   sheets.push(sheetOf('Unassigned', ['Request No.', 'Access Number', 'Title', 'เวลานัด', 'เขตลูกค้า', 'ที่อยู่', 'สาเหตุที่จัดไม่ได้', 'ทางเลือกที่เป็นไปได้'], a.unassigned.map(u => jr(u, [u.whyNot, (u.options || []).map(o => o.far ? 'ต้องถามก่อน: ' + o.tech.name + ' เริ่มงานแรกที่นี่ ห่างเขต ' + o.tech.zone + ' ~' + o.zd.toFixed(1) + ' กม. เส้นตรง' : o.tech ? 'Double-Up กับ ' + o.with.jobs[0].access + ' (' + o.tech.name + ') ' + o.d.toFixed(1) + ' กม. เส้นตรง' : o.txt).join('\n')])).concat(a.excluded.map(u => jr({ jobs: [u], district: effDistrict(u) }, ['ไม่จัด: ' + excludeReason(u), '-']))), [22, 18, 40, 12, 18, 40, 50, 50]));
   sheets.push(sheetOf('Review', ['Request No.', 'Access Number', 'Title', 'เวลานัด', 'เขตลูกค้า', 'ที่อยู่', 'สิ่งที่ต้องตรวจสอบ', 'สถานะการจัด'], a.review.map(u => jr(u, [u.reasons.join('\n'), '-'])).concat(a.entries.filter(e => e.u.reasons.length).map(e => jr(e.u, [e.u.reasons.join('\n'), 'จัดอยู่กับ ' + a.techById[e.tech].name + ' Slot ' + e.slot]))), [22, 18, 40, 12, 18, 40, 50, 30]));
@@ -5120,7 +5198,7 @@ async function init() {
   render();
   initPresenceTracker();
   pullSettingsFromGoogleSheet({ silent: true, autoInitPush: true });
-  window.__app = { get S() { return S; }, isFTTB, isPB, jobTypeTags, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, toggleCardLock, isCardLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
+  window.__app = { get S() { return S; }, isFTTB, isPB, jobTypeTags, clearDayPlan, clearTech, unassignOne, unitOf, toggleTechLock, isTechLocked, toggleCardLock, isCardLocked, riverBank, klongOf, klongLimit, klongBlocked, homeRef, homeToJobDistInfo, fmtTechPhone, matchTech, pkgOf, pkgExcluded, pickChoices, setStartPick, techsEff, isExcluded, excludeReason, isBigTeam, analyze, replan, doImport, handleFile, render, exportExcel, buildXlsx, readXlsx, parseDistrict, parseDT, assignUnit, setDayOff, tryAssign, undo, confirmPlan, cellText, unassignUnit, ACT, selectDate, applyProposal };
 }
 
 
