@@ -1671,20 +1671,34 @@ function parseDistrict(addr, aliases, coord, access) {
 }
 'use strict';
 /* ===== State & persistence ===== */
-const clone = o => JSON.parse(JSON.stringify(o));
+const clone = o => {
+  if (typeof structuredClone === 'function') {
+    try { return structuredClone(o); } catch (e) {}
+  }
+  return JSON.parse(JSON.stringify(o));
+};
 let S = null;
 const memStore = { ok: false, warn: '' };
 function freshState() {
   return { v: 1, techs: clone(DEFAULT_TECHS), jobs: {}, uploads: [], changes: [], dayOff: {}, startPick: {}, plans: {}, settings: { ...DEFAULT_SETTINGS }, aliases: [], selectedDate: null, nextUp: 1, savedAt: null, routes: {} };
 }
+let _idbPromise = null;
 function idbOpen() {
-  return new Promise((res, rej) => {
+  if (_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((res, rej) => {
     try {
       const r = indexedDB.open('technician-planner', 1);
       r.onupgradeneeded = () => r.result.createObjectStore('kv');
-      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-    } catch (e) { rej(e); }
+      r.onsuccess = () => {
+        const db = r.result;
+        db.onclose = () => { _idbPromise = null; };
+        db.onversionchange = () => { try { db.close(); } catch (e) {} _idbPromise = null; };
+        res(db);
+      };
+      r.onerror = () => { _idbPromise = null; rej(r.error); };
+    } catch (e) { _idbPromise = null; rej(e); }
   });
+  return _idbPromise;
 }
 async function idbGet(k) { const db = await idbOpen(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
 async function idbSet(k, v) { const db = await idbOpen(); return new Promise((res, rej) => { const tx = db.transaction('kv', 'readwrite'); tx.objectStore('kv').put(v, k); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); }); }
@@ -1696,15 +1710,32 @@ async function loadState() {
   } catch (e) { memStore.ok = false; memStore.warn = 'เบราว์เซอร์นี้ไม่อนุญาตให้บันทึกข้อมูลถาวร ข้อมูลจะหายเมื่อปิดหน้านี้ กรุณากด "สำรองข้อมูล" เป็นระยะ'; }
   S = S || freshState();
 }
-let saveTimer = null;
-function save() {
-  S.savedAt = Date.now();
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    try { await idbSet('state', JSON.stringify(S)); memStore.ok = true; } catch (e) { memStore.ok = false; memStore.warn = 'บันทึกถาวรไม่สำเร็จ: ' + (e && e.message || e); }
-    if (window.onSaved) window.onSaved();
-  }, 250);
+let saveTimer = null, saveIdleId = null, _saveDirty = false;
+async function _flushSaveNow() {
+  if (!_saveDirty || !S) return;
+  _saveDirty = false;
+  clearTimeout(saveTimer); saveTimer = null;
+  if (saveIdleId && typeof cancelIdleCallback === 'function') { try { cancelIdleCallback(saveIdleId); } catch (e) {} saveIdleId = null; }
+  try { await idbSet('state', JSON.stringify(S)); memStore.ok = true; } catch (e) { memStore.ok = false; memStore.warn = 'บันทึกถาวรไม่สำเร็จ: ' + (e && e.message || e); }
+  if (window.onSaved) window.onSaved();
 }
+function save() {
+  if (!S) return;
+  S.savedAt = Date.now();
+  _saveDirty = true;
+  clearTimeout(saveTimer);
+  if (saveIdleId && typeof cancelIdleCallback === 'function') { try { cancelIdleCallback(saveIdleId); } catch (e) {} saveIdleId = null; }
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    if (typeof requestIdleCallback === 'function') {
+      saveIdleId = requestIdleCallback(() => { saveIdleId = null; _flushSaveNow(); }, { timeout: 1200 });
+    } else {
+      _flushSaveNow();
+    }
+  }, 450);
+}
+window.addEventListener('pagehide', () => { if (_saveDirty) _flushSaveNow(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && _saveDirty) _flushSaveNow(); });
 
 /* ===== Job helpers ===== */
 const effDistrict = j => j.dOver || j.dName || null;
@@ -1716,11 +1747,96 @@ const jobTypeTags = t => (isFTTB(t) ? ' FTTB' : '') + (isPB(t) ? ' PB' : '');
 function normTitle(x) { return String(x || '').toLowerCase().replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\s+/g, ' ').trim(); }
 /* คีย์เทียบแบบหลวม: NFKC, ตัวพิมพ์เล็ก, ตัดอักขระล่องหน, รวมสระอำ, ตัดทุกอย่างที่ไม่ใช่ตัวอักษร/ตัวเลข */
 function looseKey(x) { return String(x || '').normalize('NFKC').toLowerCase().replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\u0E4D\u0E32/g, '\u0E33').replace(/[^\p{L}\p{N}\p{M}]+/gu, ''); }
-function isBigTeam(j) { const st = S.settings || {}; const t = normTitle(j.title); if (!t) return false; const k = looseKey(j.title); if ((st.bigTitles || []).some(x => { if (normTitle(x) === t) return true; const xk = looseKey(x); return !!xk && (xk === k || (xk.length >= 25 && k.startsWith(xk))); })) return true; return (st.bigKw || []).some(k2 => k2 && t.includes(normTitle(k2))); }
+let _fcVer = 0, _fcCache = null;
+const _exclJobCache = new WeakMap();
+function _getFilterCompiled() {
+  const st = (S && S.settings) || {};
+  const bt = st.bigTitles || [];
+  const bk = st.bigKw || [];
+  const ep = st.excludePkgs || [];
+  const epr = st.excludeProvs || [];
+  const eb = !!st.excludeBig;
+  const kp = !!st.keepPlaybox;
+  if (_fcCache &&
+      _fcCache.btRef === bt && _fcCache.btLen === bt.length &&
+      _fcCache.bkRef === bk && _fcCache.bkLen === bk.length &&
+      _fcCache.epRef === ep && _fcCache.epLen === ep.length &&
+      _fcCache.eprRef === epr && _fcCache.eprLen === epr.length &&
+      _fcCache.eb === eb && _fcCache.kp === kp) {
+    return _fcCache;
+  }
+  const btNormSet = new Set(), btLooseSet = new Set(), btLoosePre = [];
+  for (let i = 0; i < bt.length; i++) {
+    const x = bt[i];
+    btNormSet.add(normTitle(x));
+    const xk = looseKey(x);
+    if (xk) { btLooseSet.add(xk); if (xk.length >= 25) btLoosePre.push(xk); }
+  }
+  const bkNorm = [];
+  for (let i = 0; i < bk.length; i++) {
+    const nk = normTitle(bk[i]);
+    if (nk) bkNorm.push(nk);
+  }
+  const epNormSet = new Set(), epLooseSet = new Set(), epLoosePre = [];
+  for (let i = 0; i < ep.length; i++) {
+    const x = ep[i];
+    epNormSet.add(normPkg(x));
+    const xk = looseKey(x);
+    if (xk) { epLooseSet.add(xk); if (xk.length >= 12) epLoosePre.push(xk); }
+  }
+  _fcCache = {
+    ver: ++_fcVer,
+    btRef: bt, btLen: bt.length, btNormSet, btLooseSet, btLoosePre,
+    bkRef: bk, bkLen: bk.length, bkNorm,
+    epRef: ep, epLen: ep.length, epNormSet, epLooseSet, epLoosePre,
+    eprRef: epr, eprLen: epr.length, epr,
+    eb, kp
+  };
+  return _fcCache;
+}
+function invalidateFilterCache() { _fcCache = null; }
+function isBigTeam(j) {
+  const t = normTitle(j.title); if (!t) return false;
+  const fc = _getFilterCompiled();
+  if (fc.btNormSet.has(t)) return true;
+  if (fc.btLooseSet.size) {
+    const k = looseKey(j.title);
+    if (fc.btLooseSet.has(k)) return true;
+    for (let i = 0; i < fc.btLoosePre.length; i++) if (k.startsWith(fc.btLoosePre[i])) return true;
+  }
+  for (let i = 0; i < fc.bkNorm.length; i++) if (t.includes(fc.bkNorm[i])) return true;
+  return false;
+}
 function normPkg(t) { return String(t || '').toLowerCase().replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\s+/g, ''); }
 function pkgOf(j) { const ex = j.extra || {}; for (const k of Object.keys(ex)) { const n = normPkg(k); if (n === 'servicepackagename' || n === 'servicepackage' || n === 'servicepack' || n === 'packagename' || n === 'package' || n === 'แพ็กเกจ') return ex[k]; } return ''; }
-function pkgExcluded(j) { const st = S.settings || {}; const raw = pkgOf(j); const p = normPkg(raw); if (!p) return false; const k = looseKey(raw); if (!(st.excludePkgs || []).some(x => { if (normPkg(x) === p) return true; const xk = looseKey(x); return !!xk && (xk === k || (xk.length >= 12 && k.startsWith(xk))); })) return false; if (st.keepPlaybox && /playbox/i.test(j.title || '')) return false; return true; }
-function excludeReasonRaw(j) { const ex = (S.settings && S.settings.excludeProvs) || []; if (ex.some(p => j.dProv === p || (j.address || '').includes(p))) return 'นอกพื้นที่ (ไม่มีช่าง)'; if (S.settings && S.settings.excludeBig && isBigTeam(j)) return 'งานทีมใหญ่ (ตาม Title) ไม่ใช่ทีมรถเล็ก'; if (pkgExcluded(j)) return 'แพ็กเกจที่คัดออก (Service Package Name) และไม่ใช่งาน PLAYBOX'; return ''; }
+function pkgExcluded(j) {
+  const raw = pkgOf(j); const p = normPkg(raw); if (!p) return false;
+  const fc = _getFilterCompiled();
+  let hit = fc.epNormSet.has(p);
+  if (!hit && fc.epLooseSet.size) {
+    const k = looseKey(raw);
+    if (fc.epLooseSet.has(k)) hit = true;
+    else { for (let i = 0; i < fc.epLoosePre.length; i++) if (k.startsWith(fc.epLoosePre[i])) { hit = true; break; } }
+  }
+  if (!hit) return false;
+  if (fc.kp && /playbox/i.test(j.title || '')) return false;
+  return true;
+}
+function excludeReasonRaw(j) {
+  if (!j || typeof j !== 'object') return '';
+  const fc = _getFilterCompiled();
+  const rawPkg = pkgOf(j);
+  const cached = _exclJobCache.get(j);
+  if (cached && cached.ver === fc.ver && cached.title === j.title && cached.dProv === j.dProv && cached.address === j.address && cached.pkg === rawPkg) {
+    return cached.res;
+  }
+  let res = '';
+  if (fc.epr.some(p => j.dProv === p || (j.address || '').includes(p))) res = 'นอกพื้นที่ (ไม่มีช่าง)';
+  else if (fc.eb && isBigTeam(j)) res = 'งานทีมใหญ่ (ตาม Title) ไม่ใช่ทีมรถเล็ก';
+  else if (pkgExcluded(j)) res = 'แพ็กเกจที่คัดออก (Service Package Name) และไม่ใช่งาน PLAYBOX';
+  _exclJobCache.set(j, { ver: fc.ver, title: j.title, dProv: j.dProv, address: j.address, pkg: rawPkg, res });
+  return res;
+}
 function excludeReason(j) { if (j.lockedTech) return ''; return excludeReasonRaw(j); }
 function isExcluded(j) { return !!excludeReason(j); }
 function jobsOn(date) { return Object.values(S.jobs).filter(j => j.date === date && !j.cancelled && !isExcluded(j)); }
@@ -1746,19 +1862,29 @@ const normAddr = a => String(a || '').toLowerCase().replace(/[\s .,\-\/()]+/g, 
 function buildUnits(jobs) {
   const n = jobs.length, par = jobs.map((_, i) => i);
   const find = x => par[x] === x ? x : (par[x] = find(par[x]));
-  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-    const a = jobs[i], b = jobs[j], sa = natSlot(a), sb = natSlot(b);
-    if (!sa || sa !== sb) continue;
-    if (a.solo || b.solo) continue; // ผู้ใช้แยกใบงานนี้ออกจากบ้านเดียวกันแล้ว
-    const ca = jobCoord(a), cb = jobCoord(b);
-    let same = false;
-    // คนละ Access Number ถือเป็นคนละงานเสมอ แม้พิกัด/ที่อยู่ใกล้หรือเหมือนกัน
-    // อนุญาต Bundled เฉพาะใบงานที่มี Access Number เดียวกันเท่านั้น
-    if (String(a.access || '').trim() !== String(b.access || '').trim()) continue;
-    if (ca && cb) same = haversine(ca, cb) <= 0.1;
-    else { const na = normAddr(a.address), nb = normAddr(b.address); same = na.length > 12 && na === nb; }
-    if (same) par[find(i)] = find(j);
+  const buckets = new Map();
+  for (let i = 0; i < n; i++) {
+    const a = jobs[i], sa = natSlot(a);
+    if (!sa || a.solo) continue;
+    const acc = String(a.access || '').trim();
+    const bk = sa + '|' + acc;
+    let arr = buckets.get(bk);
+    if (!arr) { arr = []; buckets.set(bk, arr); }
+    arr.push(i);
   }
+  buckets.forEach(idxs => {
+    if (idxs.length < 2) return;
+    for (let x = 0; x < idxs.length; x++) {
+      const i = idxs[x], a = jobs[i], ca = jobCoord(a);
+      for (let y = x + 1; y < idxs.length; y++) {
+        const j = idxs[y], b = jobs[j], cb = jobCoord(b);
+        let same = false;
+        if (ca && cb) same = haversine(ca, cb) <= 0.1;
+        else { const na = normAddr(a.address), nb = normAddr(b.address); same = na.length > 12 && na === nb; }
+        if (same) par[find(i)] = find(j);
+      }
+    }
+  });
   const g = {}; jobs.forEach((j, i) => { (g[find(i)] = g[find(i)] || []).push(j); });
   return Object.values(g).map(js => {
     js.sort((a, b) => (a.min - b.min) || (a.req < b.req ? -1 : 1));
@@ -2575,7 +2701,15 @@ const isFrozen = p => p && (p.status === 'confirmed' || p.status === 'revised');
 function logPlan(date, text) { const p = ensurePlan(date); p.log.push({ ts: Date.now(), text }); if (p.log.length > 300) p.log.shift(); }
 function techsEff(date) { const pk = (S.startPick && S.startPick[date]) || {}; return S.techs.map(t => (pk[t.id] && DISTRICTS[pk[t.id]]) ? Object.assign({}, t, { zone: pk[t.id], homeZone: t.zone, picked: true }) : t); }
 function techAvail(date) { const off = S.dayOff[date] || {}; return techsEff(date).filter(t => t.active && !off[t.id]); }
-function pickChoices(date, t) { const home = homeRef(Object.assign({}, t, { picked: false })) || DISTRICTS[t.homeZone || t.zone]; const m = {}; jobsOn(date).forEach(j => { const d = effDistrict(j); if (d && DISTRICTS[d]) m[d] = (m[d] || 0) + 1; }); return Object.keys(m).map(d => ({ d, n: m[d], km: home ? haversine(home, DISTRICTS[d]) : null })).sort((a, b) => (a.km || 0) - (b.km || 0)); }
+function pickChoices(date, t, preCounts) {
+  const home = homeRef(Object.assign({}, t, { picked: false })) || DISTRICTS[t.homeZone || t.zone];
+  let m = preCounts;
+  if (!m) {
+    m = {};
+    jobsOn(date).forEach(j => { const d = effDistrict(j); if (d && DISTRICTS[d]) m[d] = (m[d] || 0) + 1; });
+  }
+  return Object.keys(m).map(d => ({ d, n: m[d], km: home ? haversine(home, DISTRICTS[d]) : null })).sort((a, b) => (a.km || 0) - (b.km || 0));
+}
 function setStartPick(date, techId, dist) { S.startPick = S.startPick || {}; S.startPick[date] = S.startPick[date] || {}; if (dist) S.startPick[date][techId] = dist; else delete S.startPick[date][techId]; logPlan(date, 'ผู้ใช้เลือกเขตงานแรกของ ' + ((S.techs.find(x => x.id === techId) || {}).name || techId) + ': ' + (dist || 'ใช้เขตประจำ')); }
 
 function replan(date, why) {
@@ -2697,14 +2831,14 @@ function analyze(date) {
   const doubleUps = [];
   unassigned.forEach(u => {
     const cnt = { off: 0, full: 0, travel: 0, none: 0 }; let free = 0;
-    techsEff(date).filter(t => t.active).forEach(t => {
+    techs.forEach(t => {
       if (off[t.id]) { cnt.off++; return; }
       const occupied = cells[t.id][u.slot] && cells[t.id][u.slot].length;
       if (occupied) { cnt.full++; return; }
       const items = perTech[t.id].list.map(e => ({ u: e.u, slot: e.slot, fixed: true, double: e.double })).concat([{ u, slot: u.slot, fixed: false }]);
       if (techCost(t, items) === Infinity) cnt.travel++; else free++;
     });
-    const total = S.techs.filter(t => t.active).length;
+    const total = techs.length;
     if (u.removedByUser) u.whyNot = 'นำออกจากแพลนโดยผู้ใช้' + (u.removedInfo && u.removedInfo.tech && techById[u.removedInfo.tech] ? ' (เดิมอยู่กับ ' + techById[u.removedInfo.tech].name + ' Slot ' + u.removedInfo.slot + ')' : '');
     else if (cnt.off === total) u.whyNot = 'ช่างทั้งหมดหยุดในวันนี้';
     else if (free) u.whyNot = 'ยังมีช่างว่างใน Slot ' + u.slot + ' (' + free + ' คน) รอคำนวณ/ตรวจสอบ';
@@ -2712,7 +2846,7 @@ function analyze(date) {
     u.options = [];
     if (!u.removedByUser && !free && u.coord) {
       ALLOW_FAR = true;
-      techsEff(date).filter(t => t.active && !off[t.id]).forEach(t => {
+      techs.forEach(t => { if (off[t.id]) return;
         if (cells[t.id][u.slot] && cells[t.id][u.slot].length) return;
         if (perTech[t.id].list.some(e => e.slot < u.slot)) return;
         const zd = zoneDist(t, u); if (zd == null || zd <= S.settings.maxStart) return;
@@ -3097,14 +3231,14 @@ function pill(cls, txt, icon) { return '<span class="pill ' + cls + '">' + (icon
 function lvPill(lv) { return pill(lv === 'ok' ? 'ok' : lv === 'warn' ? 'warn' : 'risk', LV_TXT[lv], LV_ICON[lv]); }
 
 /* ===== Header ===== */
-function renderHeader() {
+function renderHeader(a) {
   const dates = allDates(), d = curDate();
   $('dateSel').innerHTML = '<option value="">— วันที่ในข้อมูล —</option>' + dates.map(x => '<option value="' + x.date + '"' + (x.date === d ? ' selected' : '') + '>' + fmtDateTH(x.date) + ' (' + x.n + ' ใบงาน)</option>').join('');
   $('dateIn').value = d || '';
   const p = d && S.plans[d];
   $('statusPill').innerHTML = p ? pill(STATUS_CLS[p.status], STATUS_TXT[p.status]) : pill('info', 'ยังไม่มีแพลน');
   $('btnUndo').disabled = !undoStack.length;
-  const has = d && jobsOn(d).length;
+  const has = d && (a && a.date === d ? a.jobs.length : jobsOn(d).length);
   if ($('btnReplan')) $('btnReplan').disabled = !has;
   if ($('btnClearDayPlan')) $('btnClearDayPlan').disabled = !has || !p || !Object.keys(p.assign || {}).length;
   if ($('btnExport')) $('btnExport').disabled = !Object.keys(S.jobs).length;
@@ -3143,7 +3277,7 @@ function render() {
   try {
     if (tab === 'travel') tab = 'plan';
     const d = curDate(); const a = d ? analyze(d) : null;
-    renderHeader(); renderTabs(a);
+    renderHeader(a); renderTabs(a);
     let html = '';
     if (tab === 'plan') html = viewPlan(a);
     else if (tab === 'unassigned') html = viewList(a, 'unassigned');
@@ -3280,7 +3414,8 @@ function chipHtml(e, a, locked) {
   const q = search && !matchSearch(e.u) ? ' dim' : '';
   const cardLocked = !!e.cardLocked;
   const anyLocked = !!(locked || cardLocked);
-  const isNewUpload = !anyLocked && !!latestRawUploadId() && e.u.jobs.some(j => j.uploadId === latestRawUploadId());
+  const latestUpId = a && a._latestRawId !== undefined ? a._latestRawId : (a ? (a._latestRawId = latestRawUploadId()) : latestRawUploadId());
+  const isNewUpload = !anyLocked && !!latestUpId && e.u.jobs.some(j => j.uploadId === latestUpId);
   const tip = (locked ? '🔒 ช่างคนนี้ถูกล็อกงานแล้ว (ไม่สามารถโยกย้ายงานได้)\n' : cardLocked ? '🔒 การ์ดงานนี้ถูกล็อกไว้ (ไม่ถูกย้ายหรือจัดใหม่อัตโนมัติ)\n' : '') + e.msgs.map(m => LV_ICON[m.lv] + ' ' + m.m).join('\n');
   const canDrag = !anyLocked;
   const lockBtnTitle = locked
@@ -3296,6 +3431,8 @@ function gmapBtn(a, tid) {
 }
 function tableHtml(a) {
   const p = a.plan, st = p ? p.status : 'draft';
+  const distCounts = {};
+  (a.jobs || []).forEach(j => { const d = effDistrict(j); if (d && DISTRICTS[d]) distCounts[d] = (distCounts[d] || 0) + 1; });
   let t = '<section class="plan-wrap"><div class="plan-head"><div><h2 class="ptitle">' + h(APP_TITLE) + '</h2><div class="muted">แพลนวันที่ ' + fmtDateTH(a.date) + ' · ' + pill(STATUS_CLS[st], STATUS_TXT[st]) + '</div></div></div>';
   t += '<div class="tscroll"><table class="plan"><thead><tr><th class="c-name">ช่าง</th>' + SLOTS.map(s => '<th>Slot ' + s.n + '<small>' + s.label + '</small></th>').join('') + '<th>เขตเริ่มงานช่าง</th><th>สถานะ</th><th>จำนวนงาน</th><th>ตรวจสอบ</th></tr></thead><tbody>';
   a.techs.forEach(tc => {
@@ -3322,7 +3459,7 @@ function tableHtml(a) {
           ? '<br><small class="muted" title="ระยะทางและเวลาขับรถจริงจาก Google Maps">เส้นทางรวม ' + rk.roadKm.toFixed(1) + ' กม. (~' + Math.round(rk.roadMin || 0) + ' น.)</small>'
           : '<br><small class="muted" title="ระยะเส้นตรง">เส้นทางรวม ' + rk.directKm.toFixed(1) + ' กม.</small>')
       : '';
-    t += '<td class="zone">' + (off ? h(tc.homeZone || tc.zone) : '<div>ประจำ: ' + h(tc.homeZone || tc.zone) + (techHomeCoord(tc) ? ' <small title="ระยะงานแรกคำนวณจริงจากพิกัดบ้านช่าง">📍พิกัดบ้าน</small>' : '') + '</div><label class="small muted">งานแรกวันนี้ <select data-chg="startPick" data-t="' + tc.id + '" aria-label="เลือกเขตงานแรกของ ' + h(tc.name) + '"><option value="">ใช้เขตประจำ</option>' + pickChoices(a.date, tc).map(c => '<option value="' + h(c.d) + '"' + (tc.picked && tc.zone === c.d ? ' selected' : '') + '>' + h(c.d) + ' (' + c.n + ' งาน' + (c.km != null ? ', ห่างเขตประจำ ~' + c.km.toFixed(0) + ' กม.' : '') + ')</option>').join('') + '</select></label>') + '</td><td>' + (off ? pill('off', 'หยุด', '■') : pill('ok', 'ทำงาน', '✓')) + '</td><td class="num">' + (off ? '-' : pt.count + (pt.units !== pt.count ? ' <small>(' + pt.units + ' จุด)</small>' : '') + rkHtml) + '</td><td>' + (off ? '-' : risk ? pill('risk', 'เสี่ยง ' + risk, '✖') + (warn ? ' ' + pill('warn', warn, '⚠') : '') : warn ? pill('warn', 'รอตรวจ ' + warn, '⚠') : pt.count ? pill('ok', 'ผ่าน', '✓') : '<span class="muted">ว่าง</span>') + '</td></tr>';
+    t += '<td class="zone">' + (off ? h(tc.homeZone || tc.zone) : '<div>ประจำ: ' + h(tc.homeZone || tc.zone) + (techHomeCoord(tc) ? ' <small title="ระยะงานแรกคำนวณจริงจากพิกัดบ้านช่าง">📍พิกัดบ้าน</small>' : '') + '</div><label class="small muted">งานแรกวันนี้ <select data-chg="startPick" data-t="' + tc.id + '" aria-label="เลือกเขตงานแรกของ ' + h(tc.name) + '"><option value="">ใช้เขตประจำ</option>' + pickChoices(a.date, tc, distCounts).map(c => '<option value="' + h(c.d) + '"' + (tc.picked && tc.zone === c.d ? ' selected' : '') + '>' + h(c.d) + ' (' + c.n + ' งาน' + (c.km != null ? ', ห่างเขตประจำ ~' + c.km.toFixed(0) + ' กม.' : '') + ')</option>').join('') + '</select></label>') + '</td><td>' + (off ? pill('off', 'หยุด', '■') : pill('ok', 'ทำงาน', '✓')) + '</td><td class="num">' + (off ? '-' : pt.count + (pt.units !== pt.count ? ' <small>(' + pt.units + ' จุด)</small>' : '') + rkHtml) + '</td><td>' + (off ? '-' : risk ? pill('risk', 'เสี่ยง ' + risk, '✖') + (warn ? ' ' + pill('warn', warn, '⚠') : '') : warn ? pill('warn', 'รอตรวจ ' + warn, '⚠') : pt.count ? pill('ok', 'ผ่าน', '✓') : '<span class="muted">ว่าง</span>') + '</td></tr>';
   });
   t += '</tbody></table></div><p class="legend muted">ช่องดำ ■ = ช่างหยุด · ✓ เขียว = ผ่านกฎที่ตรวจได้ · ⚠ เหลือง = รอตรวจสอบ · ✖ แดง = เสี่ยง/ผิดกฎ · ช่องเทา = ว่าง (ไม่มีงานสมมติ) · ลากงานจากรายการด้านล่างมาวางที่ช่อง หรือกด ＋ ที่ช่องว่าง · กดที่งานเพื่อดูรายละเอียด</p></section>';
   return t;
@@ -5019,7 +5156,7 @@ const ACT = {
     toast('✓ คำนวณระยะทางจริงและ' + (up.mode === 'planned' ? 'ล็อกงานตามชื่อช่าง ' + (up.planned ? up.planned.locked : 0) + ' ใบ · ' : '') + 'นำเข้า ' + up.jobs + ' ใบงาน (ใหม่ ' + up.new + ', เปลี่ยน ' + up.changed + ', ซ้ำ ' + up.dup + ') · กรองออก ' + (up.filtered || 0) + ' แถว · จัดลงตาราง ' + up.assigned + ' ใบ, จัดไม่ได้ ' + up.unassigned + ', รอตรวจสอบ ' + up.review, 'ok');
   }
 };
-function afterExcludeChange(syncAction, syncDetail, toastMsg) { S.settings._userEditedFilters = true; Object.keys(S.plans).forEach(d => { if (S.plans[d] && S.plans[d].status !== 'cancelled') { Object.keys(S.plans[d].assign).forEach(k => { if (S.jobs[k] && isExcluded(S.jobs[k])) delete S.plans[d].assign[k]; }); if (jobsOn(d).length) replan(d, syncAction || 'เปลี่ยนเงื่อนไขคัดกรองงาน'); } }); save(); render(); scheduleSettingsSheetSync(syncAction || 'แก้ไขเงื่อนไขคัดกรองงาน', syncDetail || ''); toast(toastMsg || 'อัปเดตรายการตั้งค่าแล้ว', 'ok'); }
+function afterExcludeChange(syncAction, syncDetail, toastMsg) { S.settings._userEditedFilters = true; invalidateFilterCache(); Object.keys(S.plans).forEach(d => { if (S.plans[d] && S.plans[d].status !== 'cancelled') { Object.keys(S.plans[d].assign).forEach(k => { if (S.jobs[k] && isExcluded(S.jobs[k])) delete S.plans[d].assign[k]; }); if (jobsOn(d).length) replan(d, syncAction || 'เปลี่ยนเงื่อนไขคัดกรองงาน'); } }); save(); render(); scheduleSettingsSheetSync(syncAction || 'แก้ไขเงื่อนไขคัดกรองงาน', syncDetail || ''); toast(toastMsg || 'อัปเดตรายการตั้งค่าแล้ว', 'ok'); }
 function pushUndoSimple() { /* การแก้ Master Data ไม่อยู่ในประวัติย้อนกลับ */ }
 function reparseAll() {
   Object.values(S.jobs).forEach(j => {
@@ -5066,7 +5203,19 @@ document.addEventListener('change', e => {
   else if (c === 'maptog') { mapHidden[t.dataset.t] = !t.checked; render(); }
   else if (c === 'pdate') { pending.date = t.value; }
 });
-document.addEventListener('input', e => { if (e.target.id === 'q') { search = e.target.value.trim(); render(); } if (e.target.id === 'cpq' && cpCtx) { $('cpList').innerHTML = cellPickList(e.target.value); } });
+let _qRenderTimer = null, _cpqTimer = null;
+document.addEventListener('input', e => {
+  if (e.target.id === 'q') {
+    search = e.target.value.trim();
+    clearTimeout(_qRenderTimer);
+    _qRenderTimer = setTimeout(() => { _qRenderTimer = null; render(); }, 160);
+  }
+  if (e.target.id === 'cpq' && cpCtx) {
+    const val = e.target.value;
+    clearTimeout(_cpqTimer);
+    _cpqTimer = setTimeout(() => { _cpqTimer = null; if ($('cpList') && cpCtx) $('cpList').innerHTML = cellPickList(val); }, 90);
+  }
+});
 /* drag & drop */
 let dragKey = null;
 document.addEventListener('dragstart', e => {
