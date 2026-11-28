@@ -3687,10 +3687,12 @@ function partnerMsgSubText() {
   const v = S && S.settings && S.settings.partnerMsgSub;
   return (v != null && String(v).trim() !== '') ? String(v).trim() : 'งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง';
 }
-const DEFAULT_PARTNER_MSG_FOOTER = 'ist พวกนี้คือ non ที่ทีมกลางดึงมาครับ หากมีงานพวกนี้ในแพลนของ Partner จะได้ไม่ต้องเข้าซ้ำครับ';
+const DEFAULT_PARTNER_MSG_FOOTER = 'List พวกนี้คือ non ที่ทีมกลางดึงมาครับ หากมีงานพวกนี้ในแพลนของ Partner จะได้ไม่ต้องเข้าซ้ำครับ';
 function partnerMsgFooterText() {
   if (S && S.settings && Object.prototype.hasOwnProperty.call(S.settings, 'partnerMsgFooter') && S.settings.partnerMsgFooter != null) {
-    return String(S.settings.partnerMsgFooter).trim();
+    const val = String(S.settings.partnerMsgFooter).trim();
+    if (val === 'ist พวกนี้คือ non ที่ทีมกลางดึงมาครับ หากมีงานพวกนี้ในแพลนของ Partner จะได้ไม่ต้องเข้าซ้ำครับ') return DEFAULT_PARTNER_MSG_FOOTER;
+    return val;
   }
   return DEFAULT_PARTNER_MSG_FOOTER;
 }
@@ -3700,6 +3702,7 @@ function partnerJobDateTime(j) {
   return String(j.planRaw || j.date || '-').trim();
 }
 const DEFAULT_PARTNER_SKIP_PROFILES = [
+  'AFPL_MA_AFP MA Monthly_WNP (BKK)_LT_FTH,+++',
   'AFPL_MA_ICT_ICT Corperation (BKK)_4T_16054_82841_FTH,PLB',
   'AFPL_MA_บจ.ออริจิ้น ไฟเบอร์_1012905_PLB,CAP,FTH',
   'AFPL_MA_KT (BKK)_4T_87325_FTH,PLB',
