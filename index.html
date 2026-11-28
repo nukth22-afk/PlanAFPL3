@@ -3644,7 +3644,7 @@ function jobContractTeam(j) {
   return '';
 }
 function extractPartnerShortName(rawTeam) {
-  const s = String(rawTeam || '').trim();
+  const s = String(rawTeam || '').replace(/[\u200b-\u200d\ufeff]/g, '').trim();
   if (!s) return '';
   // 1) 3BB / TTBB / TTTBB branches (e.g., ROM-3BB_TTBB-BKSC1 -> TTTBB-BKSC1, TTBB-BKSC7, TTBB-SPN50)
   if (/(?:^|[\s_-])TT{2,3}BB-BKSC1(?=$|[\s_(])/i.test(s)) return 'TTTBB-BKSC1';
@@ -3687,23 +3687,63 @@ function partnerMsgSubText() {
   const v = S && S.settings && S.settings.partnerMsgSub;
   return (v != null && String(v).trim() !== '') ? String(v).trim() : 'งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง';
 }
+const DEFAULT_PARTNER_MSG_FOOTER = 'ist พวกนี้คือ non ที่ทีมกลางดึงมาครับ หากมีงานพวกนี้ในแพลนของ Partner จะได้ไม่ต้องเข้าซ้ำครับ';
+function partnerMsgFooterText() {
+  if (S && S.settings && Object.prototype.hasOwnProperty.call(S.settings, 'partnerMsgFooter') && S.settings.partnerMsgFooter != null) {
+    return String(S.settings.partnerMsgFooter).trim();
+  }
+  return DEFAULT_PARTNER_MSG_FOOTER;
+}
 function partnerJobDateTime(j) {
   if (!j) return '-';
   if (j.date && j.timeStr) return j.date + ' ' + j.timeStr;
   return String(j.planRaw || j.date || '-').trim();
 }
+const DEFAULT_PARTNER_SKIP_PROFILES = [
+  'AFPL_MA_ICT_ICT Corperation (BKK)_4T_16054_82841_FTH,PLB',
+  'AFPL_MA_บจ.ออริจิ้น ไฟเบอร์_1012905_PLB,CAP,FTH',
+  'AFPL_MA_KT (BKK)_4T_87325_FTH,PLB',
+  'AFPL_MA_KT (Phra Pradaeng)_4T_87325_FTH,PLB',
+  'AFPL_MA_KT (Samut Prakan)_4T_87325_FTH,PLB'
+];
+function _normPartnerProfile(v) {
+  return String(v || '').normalize('NFKC').replace(/[\s\u00a0\u200b]+/g, ' ').trim().toLowerCase();
+}
+function partnerSkipProfiles() {
+  const arr = S && S.settings && Array.isArray(S.settings.partnerSkipProfiles)
+    ? S.settings.partnerSkipProfiles
+    : DEFAULT_PARTNER_SKIP_PROFILES;
+  return arr.map(x => String(x || '').trim()).filter(Boolean);
+}
+function isPartnerProfileSkipped(rawTeam) {
+  const norm = _normPartnerProfile(rawTeam);
+  if (!norm) return false;
+  const rules = partnerSkipProfiles();
+  for (let i = 0; i < rules.length; i++) {
+    const r = _normPartnerProfile(rules[i]);
+    if (r && norm.includes(r)) return true;
+  }
+  return false;
+}
 function buildPartnerGroups(a, mode) {
-  if (!a || !a.entries) return [];
+  const empty = [];
+  empty.skippedJobs = [];
+  if (!a || !a.entries) return empty;
   const useMode = mode || partnerFilterMode || 'all';
   const latestUpId = useMode === 'new' ? latestRawUploadId() : null;
   const q = (search || '').toLowerCase();
   const byTeam = new Map();
+  const skippedJobs = [];
   a.entries.forEach(e => {
     const tc = a.techById && a.techById[e.tech];
     const techName = tc ? tc.name : (e.tech || '-');
     e.u.jobs.forEach(j => {
       if (useMode === 'new' && latestUpId && j.uploadId !== latestUpId) return;
       const rawTeam = jobContractTeam(j);
+      if (isPartnerProfileSkipped(rawTeam)) {
+        skippedJobs.push({ j, rawTeam, techName, slot: e.slot, dtStr: partnerJobDateTime(j) });
+        return;
+      }
       const displayName = partnerDisplayName(rawTeam);
       const teamKey = rawTeam ? displayName.toLowerCase() : '__NO_TEAM__';
       if (q) {
@@ -3733,6 +3773,7 @@ function buildPartnerGroups(a, mode) {
     if (y.teamKey === '__NO_TEAM__') return -1;
     return x.displayName.localeCompare(y.displayName, 'th');
   });
+  groups.skippedJobs = skippedJobs;
   return groups;
 }
 function partnerMessageText(g, includeTech) {
@@ -3747,6 +3788,8 @@ function partnerMessageText(g, includeTech) {
     if (includeTech) ln += ' (' + (it.dist || 'ไม่ระบุเขต') + ' · ' + it.techName + ')';
     lines.push(ln);
   });
+  const footer = partnerMsgFooterText();
+  if (footer) lines.push(footer);
   return lines.join('\n');
 }
 function getPartnerNotifiedMap(date) {
@@ -3797,7 +3840,8 @@ function viewPartner(a) {
   o += '</div>';
   o += '<label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;cursor:pointer"><input type="checkbox" style="min-height:auto;width:16px;height:16px" data-chg="partnerIncludeTech"' + (partnerIncludeTech ? ' checked' : '') + '> แนบเขตและชื่อช่างท้ายบรรทัด</label>';
   o += '</div>';
-  o += '<label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-light);flex:1 1 280px;max-width:420px"><span style="white-space:nowrap">บรรทัดหัวข้อ:</span><input type="text" data-chg="partnerMsgSub" value="' + h(partnerMsgSubText()) + '" placeholder="งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง" style="width:100%;min-height:32px;padding:4px 10px;font-size:12.5px"></label>';
+  o += '<label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-light);flex:1 1 260px;max-width:360px"><span style="white-space:nowrap">บรรทัดหัวข้อ:</span><input type="text" data-chg="partnerMsgSub" value="' + h(partnerMsgSubText()) + '" placeholder="งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง" style="width:100%;min-height:32px;padding:4px 10px;font-size:12.5px"></label>';
+  o += '<label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-light);flex:1 1 380px"><span style="white-space:nowrap">ข้อความส่วนท้าย:</span><input type="text" data-chg="partnerMsgFooter" value="' + h(partnerMsgFooterText()) + '" placeholder="เว้นว่างหากไม่ต้องการแสดงข้อความท้าย" style="width:100%;min-height:32px;padding:4px 10px;font-size:12.5px"></label>';
   o += '</div>';
 
   if (groups.length > 1) {
@@ -3811,9 +3855,19 @@ function viewPartner(a) {
     o += '</div>';
   }
 
+  const skippedJobs = groups.skippedJobs || [];
+  const skipList = partnerSkipProfiles();
+  const skipPanelHtml = '<details class="exc" style="margin-top:4px"><summary>โปรไฟล์ที่ไม่ต้องแจ้ง Partner (' + skipList.length + ' โปรไฟล์' + (skippedJobs.length ? ' · ข้ามไปแล้ววันนี้ ' + skippedJobs.length + ' งาน' : '') + ')</summary>' +
+    '<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px">' +
+    (skippedJobs.length ? '<div class="small muted"><b>งานในแพลนวันนี้ที่ข้ามไม่แจ้ง (' + skippedJobs.length + ' งาน):</b> ' + skippedJobs.map(x => h((x.j.access || x.j.req || '-') + ' (' + extractPartnerShortName(x.rawTeam) + ')')).join(' · ') + '</div>' : '') +
+    '<label class="small muted" style="display:flex;flex-direction:column;gap:4px"><span><b>รายชื่อโปรไฟล์ที่ไม่ต้องทำแจ้ง</b> (1 โปรไฟล์ต่อบรรทัด — แก้ไข/เพิ่มได้):</span>' +
+    '<textarea rows="5" data-chg="partnerSkipProfiles" style="width:100%;font-family:var(--mono),var(--font);font-size:12px">' + h(skipList.join('\n')) + '</textarea></label>' +
+    '<div><button type="button" class="btn tiny" data-act="partnerResetSkip">↺ คืนค่ารายการยกเว้นเริ่มต้น</button></div>' +
+    '</div></details>';
+
   if (!groups.length) {
-    o += '<section class="empty-state"><h2>ยังไม่มีใบงานในแพลนช่างสำหรับแจ้ง Partner</h2><p class="muted">' + (partnerFilterMode === 'new' ? 'ไม่มีงานใหม่จากไฟล์ดิบล่าสุดที่ถูกจัดลงแพลนในวันนี้ ลองสลับไปดู "งานทั้งหมดในแพลนวันนี้"' : 'กรุณาจัดงานลงแพลนช่างก่อน แล้วรายการจะแยกตาม Contract Team ให้อัตโนมัติที่นี่') + '</p></section>';
-    o += '</div>';
+    o += '<section class="empty-state"><h2>ยังไม่มีใบงานในแพลนช่างสำหรับแจ้ง Partner</h2><p class="muted">' + (skippedJobs.length ? 'ใบงานในแพลนวันนี้ทั้งหมด (' + skippedJobs.length + ' งาน) อยู่ในโปรไฟล์ที่ตั้งค่าไว้ว่าไม่ต้องแจ้ง Partner' : (partnerFilterMode === 'new' ? 'ไม่มีงานใหม่จากไฟล์ดิบล่าสุดที่ถูกจัดลงแพลนในวันนี้ ลองสลับไปดู "งานทั้งหมดในแพลนวันนี้"' : 'กรุณาจัดงานลงแพลนช่างก่อน แล้วรายการจะแยกตาม Contract Team ให้อัตโนมัติที่นี่')) + '</p></section>';
+    o += skipPanelHtml + '</div>';
     return o;
   }
 
@@ -3866,7 +3920,7 @@ function viewPartner(a) {
     o += '</ul></details>';
     o += '</article>';
   });
-  o += '</div></div>';
+  o += '</div>' + skipPanelHtml + '</div>';
   return o;
 }
 function viewList(a, kind) {
@@ -5435,6 +5489,11 @@ const ACT = {
       toast('ล้างสถานะแจ้ง Partner ของวันนี้แล้ว', 'ok');
     }
   },
+  partnerResetSkip: () => {
+    delete S.settings.partnerSkipProfiles;
+    save(); render();
+    toast('คืนค่ารายการโปรไฟล์ที่ไม่ต้องแจ้ง Partner แล้ว', 'ok');
+  },
   clearTech: t => { const d = curDate(), id = t.dataset.t, pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } if (isTechLocked(d, id)) { toast('ช่างคนนี้ล็อกงานอยู่ ปลดล็อกก่อนจึงล้างแพลนได้', 'err'); return; } const tc = S.techs.find(x => x.id === id), all = Object.values((pl || {}).assign || {}).filter(v => v.tech === id), n = all.filter(v => !v.locked).length, lockedN = all.length - n; if (!all.length) { toast('ช่างคนนี้ยังไม่มีงานในแพลน', 'info'); return; } if (!n) { toast('งานทั้งหมดของช่างคนนี้ (' + lockedN + ' ใบ) ถูกล็อกอยู่ (🔒) ปลดล็อกก่อนจึงล้างได้', 'err'); return; }
     openModal('<h2>ล้างแพลนของ ' + h(tc.name) + '?</h2><div class="mbody"><p>จะนำงานของช่างคนนี้ <b>' + n + ' ใบ</b> ออกจากแพลนวันที่ ' + fmtDateTH(d) + (lockedN ? ' <span class="muted">(งานที่ล็อกไว้ <b>' + lockedN + ' ใบ</b> จะคงอยู่ในตาราง)</span>' : '') + '</p><p class="muted">งานที่นำออกจะแสดงเป็น "⊘ นำออก" ในช่องเดิม กดนำกลับได้ และกดย้อนกลับได้ งานของช่างคนอื่นไม่ถูกแตะ</p></div><div class="mfoot"><button class="btn primary" data-act="clearTechDo" data-t="' + h(id) + '">ล้างแพลน ' + n + ' ใบ</button><button class="btn" data-act="closeModal">ยกเลิก</button></div>'); },
   clearTechDo: t => { const d = curDate(), id = t.dataset.t; closeModal(); const n = clearTech(d, id); render(); if (n) toast('ล้างแพลนแล้ว ' + n + ' ใบ (ย้อนกลับได้)', 'ok'); },
@@ -5659,8 +5718,10 @@ document.addEventListener('change', e => {
   else if (c === 'pdate') { pending.date = t.value; }
   else if (c === 'partnerAlias') { let rawList = []; try { rawList = JSON.parse(t.dataset.teams || '[]'); } catch (err) {} if (!rawList.length && t.dataset.team) rawList = [t.dataset.team]; if (!rawList.length) return; if (!S.settings.partnerAliases) S.settings.partnerAliases = {}; const val = t.value.trim(); rawList.forEach(raw => { const defName = extractPartnerShortName(raw); if (val && val !== defName) S.settings.partnerAliases[raw] = val; else delete S.settings.partnerAliases[raw]; }); save(); render(); toast('อัปเดตชื่อ Partner ในข้อความแจ้งแล้ว', 'ok'); }
   else if (c === 'partnerMsgSub') { S.settings.partnerMsgSub = t.value.trim() || 'งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง'; save(); render(); }
+  else if (c === 'partnerMsgFooter') { S.settings.partnerMsgFooter = t.value.trim(); save(); render(); }
   else if (c === 'partnerIncludeTech') { partnerIncludeTech = t.checked; render(); }
   else if (c === 'partnerJobCheck') { const k = t.dataset.k; if (!k) return; if (t.checked) partnerExcludedKeys.delete(k); else partnerExcludedKeys.add(k); render(); }
+  else if (c === 'partnerSkipProfiles') { S.settings.partnerSkipProfiles = t.value.split('\n').map(x => x.trim()).filter(Boolean); save(); render(); toast('บันทึกรายการโปรไฟล์ที่ไม่ต้องแจ้ง Partner แล้ว', 'ok'); }
 });
 let _qRenderTimer = null, _cpqTimer = null;
 document.addEventListener('input', e => {
