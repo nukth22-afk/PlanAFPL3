@@ -731,6 +731,65 @@ td.slot.over { outline: 3px dashed #6366f1; outline-offset: -4px; background: #e
 }
 .quick-district { margin: 6px 0; display: flex; align-items: center; gap: 6px; background: var(--panel); padding: 4px 8px; border-radius: 8px; border: 1px solid #cbd5e1; }
 
+/* ===== Partner Notification Page (แจ้ง PartNer) ===== */
+.partner-wrap { display: flex; flex-direction: column; gap: 14px; }
+.partner-toolbar {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px;
+  background: #ffffff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; box-shadow: var(--shadow-sm);
+}
+.partner-seg { display: inline-flex; gap: 4px; background: var(--panel-alt); padding: 3px; border-radius: 10px; border: 1px solid var(--line); }
+.partner-seg button {
+  border: 0; background: transparent; color: var(--muted); font-family: inherit; font-size: 12.5px; font-weight: 600;
+  padding: 6px 12px; border-radius: 7px; cursor: pointer; transition: all .15s ease;
+}
+.partner-seg button.on { background: #0f172a; color: #ffffff; box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18); }
+.partner-seg button:hover:not(.on) { color: var(--ink); background: rgba(255,255,255,0.7); }
+.partner-jumps { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.partner-jump {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px;
+  border: 1px solid var(--line); background: #ffffff; color: var(--ink-light); font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all .14s ease;
+}
+.partner-jump:hover { border-color: #94a3b8; background: #f8fafc; transform: translateY(-1px); }
+.partner-jump.done { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+.partner-jump.changed { background: #fefce8; border-color: #fde047; color: #a16207; }
+.partner-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 14px; align-items: start;
+}
+@media (max-width: 640px) { .partner-grid { grid-template-columns: 1fr; } }
+.partner-card {
+  background: #ffffff; border: 1px solid var(--line); border-radius: 14px; padding: 16px;
+  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 10px;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.partner-card.is-done { border-color: #86efac; box-shadow: inset 4px 0 0 #16a34a, var(--shadow); }
+.partner-card.is-changed { border-color: #fde047; box-shadow: inset 4px 0 0 #eab308, var(--shadow); }
+.partner-card-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  padding-bottom: 10px; border-bottom: 1px solid var(--line-light);
+}
+.partner-card-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.partner-card-title h3 { margin: 0; font-size: 15.5px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.partner-alias-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted);
+}
+.partner-alias-row input {
+  min-height: 28px; padding: 3px 9px; font-size: 12.5px; border-radius: 7px; width: 170px; max-width: 100%;
+}
+.partner-msg-box {
+  margin: 0; padding: 12px 14px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px;
+  font-family: var(--mono), var(--font); font-size: 12.5px; line-height: 1.65; color: #0f172a;
+  white-space: pre-wrap; word-break: break-word; user-select: all; max-height: 280px; overflow-y: auto;
+}
+.partner-jobs-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 5px; }
+.partner-jobs-list li {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  padding: 6px 10px; background: #fafbfc; border: 1px solid var(--line-light); border-radius: 8px; font-size: 12px;
+}
+.partner-jobs-list li.is-unchecked { opacity: 0.5; text-decoration: line-through; }
+.partner-jobs-list label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-weight: 500; }
+.partner-jobs-list input[type="checkbox"] { min-height: auto; width: 15px; height: 15px; cursor: pointer; }
+
 @media (max-width: 640px) {
   body { font-size: 13px; }
   .top { padding-top: 8px; }
@@ -1712,7 +1771,7 @@ const clone = o => {
 let S = null;
 const memStore = { ok: false, warn: '' };
 function freshState() {
-  return { v: 1, techs: clone(DEFAULT_TECHS), jobs: {}, uploads: [], changes: [], dayOff: {}, startPick: {}, plans: {}, settings: { ...DEFAULT_SETTINGS }, aliases: [], selectedDate: null, nextUp: 1, savedAt: null, routes: {} };
+  return { v: 1, techs: clone(DEFAULT_TECHS), jobs: {}, uploads: [], changes: [], dayOff: {}, startPick: {}, plans: {}, partnerNotified: {}, settings: { ...DEFAULT_SETTINGS }, aliases: [], selectedDate: null, nextUp: 1, savedAt: null, routes: {} };
 }
 let _idbPromise = null;
 function idbOpen() {
@@ -3219,7 +3278,7 @@ function doImport(p, opts) {
       if (np && isFrozen(np) && np.assign[key]) old.impact = true;
       if (np && !isFrozen(np) && np.assign[key] && (d.some(x => x.f === 'Plan Arrival Time') || d.some(x => x.f === 'Address' || x.f === 'Latitude' || x.f === 'Longitude'))) { /* ระบบจัดใหม่ตามข้อมูลล่าสุดในรอบคำนวณ ยกเว้นงานที่ผู้ใช้จัดเอง */ }
       if (old.date) touched.add(old.date);
-    } else { up.unchanged++; old.lastSeen = ts; if (old.absent) { old.absent = false; } old.conflict = job.conflict || false; }
+    } else { up.unchanged++; old.lastSeen = ts; if (old.absent) { old.absent = false; } if (!old.contractTeam && job.contractTeam) old.contractTeam = job.contractTeam; old.conflict = job.conflict || false; }
   });
   Object.values(S.jobs).forEach(j => {
     if (up.mode !== 'planned' && !j.lockedTech && !seen.has(j.key) && !j.cancelled && j.date && fileDates.has(j.date)) {
@@ -3242,6 +3301,31 @@ function doImport(p, opts) {
 /* ===== UI state ===== */
 let mapHidden = {};
 let tab = 'plan', search = '', onlyWarn = false, pending = null, histFilter = '';
+let partnerFilterMode = 'all', partnerIncludeTech = false;
+const partnerExcludedKeys = new Set();
+async function copyTextToClipboard(txt) {
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(txt);
+      ok = true;
+    }
+  } catch (err) {}
+  if (!ok) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      ta.remove();
+    } catch (err2) {}
+  }
+  return ok;
+}
 const $ = id => document.getElementById(id);
 const STATUS_TXT = { draft: 'Draft — ร่างแพลน', needs_review: 'Needs Review — รอตรวจสอบ', confirmed: 'Confirmed — ยืนยันแล้ว', revised: 'Revised — แก้ไขหลังยืนยัน', cancelled: 'Cancelled — ยกเลิก' };
 const STATUS_CLS = { draft: 'info', needs_review: 'warn', confirmed: 'ok', revised: 'warn', cancelled: 'off' };
@@ -3284,6 +3368,7 @@ window.onSaved = renderSaved;
 function renderTabs(a) {
   const T = [
     ['plan', 'แพลนช่าง'],
+    ['partner', 'แจ้ง PartNer'],
     ['unassigned', 'งานที่จัดไม่ได้ (' + (a ? a.unassigned.length : 0) + ')'],
     ['review', 'รอตรวจสอบ (' + (a ? a.review.length : 0) + ')'],
     ['map', 'แผนที่เส้นทาง'],
@@ -3312,6 +3397,7 @@ function render() {
     renderHeader(a); renderTabs(a);
     let html = '';
     if (tab === 'plan') html = viewPlan(a);
+    else if (tab === 'partner') html = viewPartner(a);
     else if (tab === 'unassigned') html = viewList(a, 'unassigned');
     else if (tab === 'review') html = viewList(a, 'review');
     else if (tab === 'map') html = viewMap(a);
@@ -3542,6 +3628,246 @@ function unitCard(u, kind, a) {
 function listPanel(a, kind) {
   const L = (kind === 'unassigned' ? a.unassigned : a.review).filter(matchSearch).slice().sort((x, y) => (!!y.removedByUser) - (!!x.removedByUser));
   return '<section class="lpanel" data-drop="' + kind + '"><h3>' + (kind === 'unassigned' ? '✖ งานที่ยังจัดไม่ได้' : '⚠ งานรอตรวจสอบข้อมูล') + ' <span class="cnt">' + L.length + '</span></h3>' + (L.length ? L.map(u => unitCard(u, kind, a)).join('') : '<p class="muted">ไม่มีรายการ' + (kind === 'unassigned' ? ' (งานที่ผ่านข้อมูลครบถูกจัดหมดแล้ว)' : '') + '</p>') + '<p class="muted small">ลากการ์ดไปวางที่ช่อง Slot ของช่าง หรือวางการ์ดจากตารางมาที่นี่เพื่อนำออกจากแพลน</p></section>';
+}
+function jobContractTeam(j) {
+  if (!j) return '';
+  const direct = String(j.contractTeam || '').trim();
+  if (direct) return direct;
+  if (j.extra && typeof j.extra === 'object') {
+    for (const k of Object.keys(j.extra)) {
+      if (/contract\s*team/i.test(k)) {
+        const v = String(j.extra[k] || '').trim();
+        if (v) return v;
+      }
+    }
+  }
+  return '';
+}
+function extractPartnerShortName(rawTeam) {
+  const s = String(rawTeam || '').trim();
+  if (!s) return '';
+  // 1) 3BB / TTBB / TTTBB branches (e.g., ROM-3BB_TTBB-BKSC1 -> TTTBB-BKSC1, TTBB-BKSC7, TTBB-SPN50)
+  if (/(?:^|[\s_-])TT{2,3}BB-BKSC1(?=$|[\s_(])/i.test(s)) return 'TTTBB-BKSC1';
+  const m3bb = /(?:^|[\s_-])(TTBB-[A-Z0-9-]+)(?=$|[\s_(])/i.exec(s);
+  if (m3bb) return m3bb[1].toUpperCase();
+  const m3bb3 = /(?:^|[\s_-])(TTTBB-[A-Z0-9-]+)(?=$|[\s_(])/i.exec(s);
+  if (m3bb3) return m3bb3[1].toUpperCase();
+  // 2) AIS / AFPL / ROM profile code after " - " (e.g., AFPL_MA_KT (BKK)_..., ROM_AISPL_InstallAndMA_Cloud Connext_..., ROM_AISPL_MA_WNP_...)
+  const dashIdx = s.indexOf(' - ');
+  const right = dashIdx >= 0 ? s.slice(dashIdx + 3).trim() : s;
+  const mProf = /(?:^|_)(?:InstallAndMA|Install&MA|AISPM_MA|MA|Install)_([^_(\r\n]+)/i.exec(right);
+  if (mProf) {
+    let tok = mProf[1].trim();
+    if (/^AFP\b/i.test(tok)) {
+      const rest = right.slice(mProf.index + mProf[0].length);
+      const mNext = /^_([^_(\r\n]+)/.exec(rest);
+      if (mNext && mNext[1].trim()) tok = mNext[1].trim();
+    }
+    if (tok && !/^\d+$/.test(tok)) return tok;
+  }
+  // 3) Fallback: English name after "#" (before " - " and "(...)")
+  const hashIdx = s.indexOf('#');
+  if (hashIdx >= 0) {
+    const afterHash = s.slice(hashIdx + 1).split(/\s+-\s+/)[0].replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    if (afterHash) return afterHash;
+  }
+  return s.replace(/\s*\([^)]*\)\s*$/g, '').trim() || s;
+}
+function partnerDisplayName(rawTeam) {
+  const s = String(rawTeam || '').trim();
+  if (!s) return 'ไม่ระบุ Contract Team';
+  const aliases = (S && S.settings && S.settings.partnerAliases) || {};
+  const customRaw = String(aliases[s] || '').trim();
+  if (customRaw) return customRaw;
+  const autoShort = extractPartnerShortName(s);
+  const customShort = autoShort ? String(aliases[autoShort] || '').trim() : '';
+  return customShort || autoShort || s;
+}
+function partnerMsgSubText() {
+  const v = S && S.settings && S.settings.partnerMsgSub;
+  return (v != null && String(v).trim() !== '') ? String(v).trim() : 'งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง';
+}
+function partnerJobDateTime(j) {
+  if (!j) return '-';
+  if (j.date && j.timeStr) return j.date + ' ' + j.timeStr;
+  return String(j.planRaw || j.date || '-').trim();
+}
+function buildPartnerGroups(a, mode) {
+  if (!a || !a.entries) return [];
+  const useMode = mode || partnerFilterMode || 'all';
+  const latestUpId = useMode === 'new' ? latestRawUploadId() : null;
+  const q = (search || '').toLowerCase();
+  const byTeam = new Map();
+  a.entries.forEach(e => {
+    const tc = a.techById && a.techById[e.tech];
+    const techName = tc ? tc.name : (e.tech || '-');
+    e.u.jobs.forEach(j => {
+      if (useMode === 'new' && latestUpId && j.uploadId !== latestUpId) return;
+      const rawTeam = jobContractTeam(j);
+      const displayName = partnerDisplayName(rawTeam);
+      const teamKey = rawTeam ? displayName.toLowerCase() : '__NO_TEAM__';
+      if (q) {
+        const hay = (rawTeam + ' ' + displayName + ' ' + (j.access || '') + ' ' + (j.req || '') + ' ' + (effDistrict(j) || '') + ' ' + techName + ' ' + (j.title || '')).toLowerCase();
+        if (!hay.includes(q)) return;
+      }
+      let g = byTeam.get(teamKey);
+      if (!g) {
+        g = { teamKey, rawTeam, rawTeams: [], _rawSet: new Set(), displayName, items: [] };
+        byTeam.set(teamKey, g);
+      }
+      if (rawTeam && !g._rawSet.has(rawTeam)) {
+        g._rawSet.add(rawTeam);
+        g.rawTeams.push(rawTeam);
+      }
+      g.items.push({ j, e, slot: e.slot, techName, dist: effDistrict(j) || '', dtStr: partnerJobDateTime(j), rawTeam });
+    });
+  });
+  const groups = [...byTeam.values()];
+  groups.forEach(g => {
+    g.items.sort((x, y) => ((x.j.min == null ? 9999 : x.j.min) - (y.j.min == null ? 9999 : y.j.min)) || (x.slot - y.slot) || String(x.j.access || '').localeCompare(String(y.j.access || '')));
+    g.activeItems = g.items.filter(it => !partnerExcludedKeys.has(it.j.key));
+    g.sig = g.activeItems.map(it => it.j.key + '@' + it.dtStr).join('|');
+  });
+  groups.sort((x, y) => {
+    if (x.teamKey === '__NO_TEAM__') return 1;
+    if (y.teamKey === '__NO_TEAM__') return -1;
+    return x.displayName.localeCompare(y.displayName, 'th');
+  });
+  return groups;
+}
+function partnerMessageText(g, includeTech) {
+  const items = g.activeItems || g.items || [];
+  if (!items.length) return '';
+  const lines = [
+    'แจ้ง ' + g.displayName + ' เพื่อทราบ',
+    partnerMsgSubText()
+  ];
+  items.forEach(it => {
+    let ln = (it.j.access || it.j.req || '-') + ' / ' + it.dtStr;
+    if (includeTech) ln += ' (' + (it.dist || 'ไม่ระบุเขต') + ' · ' + it.techName + ')';
+    lines.push(ln);
+  });
+  return lines.join('\n');
+}
+function getPartnerNotifiedMap(date) {
+  return (S && S.partnerNotified && date && S.partnerNotified[date]) ? S.partnerNotified[date] : {};
+}
+function viewPartner(a) {
+  if (!a || !a.jobs.length) {
+    const hasAny = Object.keys(S.jobs).length;
+    return (hasAny ? '<section class="empty-state"><h2>ไม่มีใบงานในวันที่ ' + (a ? fmtDateTH(a.date) : '-') + '</h2><p>เลือกวันที่อื่นจากรายการด้านบน หรือนำเข้าไฟล์ใหม่</p>' + (allDates().length ? '<p>วันที่ที่มีข้อมูล: ' + allDates().map(x => '<button class="btn small" data-act="gotoDate" data-d="' + x.date + '">' + fmtDateTH(x.date) + ' (' + x.n + ')</button>').join(' ') + '</p>' : '') + '</section>' : emptyState());
+  }
+  const latestUpId = latestRawUploadId();
+  if (partnerFilterMode === 'new' && !latestUpId) partnerFilterMode = 'all';
+  const groups = buildPartnerGroups(a, partnerFilterMode);
+  const notifiedMap = getPartnerNotifiedMap(a.date);
+  const totalJobs = groups.reduce((s, g) => s + g.activeItems.length, 0);
+  let doneCount = 0, changedCount = 0;
+  groups.forEach(g => {
+    const rec = notifiedMap[g.teamKey];
+    if (rec) {
+      if (rec.sig === g.sig) doneCount++;
+      else changedCount++;
+    }
+  });
+  const pendingCount = Math.max(0, groups.length - doneCount);
+  const anyNotified = Object.keys(notifiedMap).length > 0;
+  let o = '<div class="partner-wrap">';
+  o += '<div class="settings-hero">';
+  o += '<div><h2>📢 แจ้ง PartNer · โยกงานให้ทีมกลางวิ่ง</h2>';
+  o += '<p>สรุปรายการงานในแพลนวันที่ <b>' + fmtDateTH(a.date) + '</b> แยกตามบริษัท (Contract Team) เพื่อคัดลอกส่งแจ้ง Partner ได้ทันที</p></div>';
+  o += '<div class="row" style="margin:0">';
+  o += '<button type="button" class="btn primary" data-act="partnerCopyAll"' + (!totalJobs ? ' disabled' : '') + '>📋 คัดลอกทั้งหมด (' + groups.filter(g => g.activeItems.length).length + ' บริษัท)</button>';
+  if (anyNotified) o += '<button type="button" class="btn" data-act="partnerClearDone" title="ล้างเครื่องหมายแจ้งแล้วของวันนี้">↺ ล้างสถานะแจ้งแล้ว</button>';
+  o += '<button type="button" class="btn" data-act="tab" data-tab="plan">← กลับหน้าแพลนช่าง</button>';
+  o += '</div></div>';
+
+  o += '<section class="summary" aria-label="สรุปแจ้ง Partner">' + [
+    ['จำนวน Partner', groups.length, 'info', ''],
+    ['ใบงานที่จะแจ้ง', totalJobs, 'ok', ''],
+    ['แจ้งแล้ววันนี้', doneCount + ' / ' + groups.length, (groups.length > 0 && doneCount === groups.length) ? 'ok' : (doneCount > 0 ? 'ok' : 'info'), doneCount > 0 ? '✓' : ''],
+    ['รอแจ้ง / มีงานเปลี่ยน', pendingCount + (changedCount ? ' (เปลี่ยน ' + changedCount + ')' : ''), pendingCount ? (changedCount ? 'warn' : 'info') : 'ok', pendingCount ? (changedCount ? '⚠' : '') : '✓']
+  ].map(x => '<div class="stat ' + x[2] + '"><span class="n">' + x[1] + '</span><span class="l">' + (x[3] ? '<i aria-hidden="true">' + x[3] + '</i>' : '') + h(x[0]) + '</span></div>').join('') + '</section>';
+
+  o += '<div class="partner-toolbar">';
+  o += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
+  o += '<div class="partner-seg" role="group" aria-label="ขอบเขตงานที่จะแจ้ง">';
+  o += '<button type="button" class="' + (partnerFilterMode === 'all' ? 'on' : '') + '" data-act="partnerScope" data-mode="all">งานทั้งหมดในแพลนวันนี้</button>';
+  if (latestUpId) o += '<button type="button" class="' + (partnerFilterMode === 'new' ? 'on' : '') + '" data-act="partnerScope" data-mode="new">เฉพาะงานใหม่ (ไฟล์ล่าสุด)</button>';
+  o += '</div>';
+  o += '<label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;cursor:pointer"><input type="checkbox" style="min-height:auto;width:16px;height:16px" data-chg="partnerIncludeTech"' + (partnerIncludeTech ? ' checked' : '') + '> แนบเขตและชื่อช่างท้ายบรรทัด</label>';
+  o += '</div>';
+  o += '<label style="display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink-light);flex:1 1 280px;max-width:420px"><span style="white-space:nowrap">บรรทัดหัวข้อ:</span><input type="text" data-chg="partnerMsgSub" value="' + h(partnerMsgSubText()) + '" placeholder="งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง" style="width:100%;min-height:32px;padding:4px 10px;font-size:12.5px"></label>';
+  o += '</div>';
+
+  if (groups.length > 1) {
+    o += '<div class="partner-jumps"><span class="small muted" style="font-weight:600">ข้ามไปที่บริษัท:</span>';
+    groups.forEach((g, idx) => {
+      const rec = notifiedMap[g.teamKey];
+      const isDone = !!(rec && rec.sig === g.sig);
+      const isChg = !!(rec && rec.sig !== g.sig);
+      o += '<button type="button" class="partner-jump' + (isDone ? ' done' : isChg ? ' changed' : '') + '" data-act="partnerJump" data-i="' + idx + '">' + (isDone ? '✓ ' : isChg ? '⚠ ' : '') + h(g.displayName) + ' <span class="muted">(' + g.activeItems.length + ')</span></button>';
+    });
+    o += '</div>';
+  }
+
+  if (!groups.length) {
+    o += '<section class="empty-state"><h2>ยังไม่มีใบงานในแพลนช่างสำหรับแจ้ง Partner</h2><p class="muted">' + (partnerFilterMode === 'new' ? 'ไม่มีงานใหม่จากไฟล์ดิบล่าสุดที่ถูกจัดลงแพลนในวันนี้ ลองสลับไปดู "งานทั้งหมดในแพลนวันนี้"' : 'กรุณาจัดงานลงแพลนช่างก่อน แล้วรายการจะแยกตาม Contract Team ให้อัตโนมัติที่นี่') + '</p></section>';
+    o += '</div>';
+    return o;
+  }
+
+  o += '<div class="partner-grid">';
+  groups.forEach((g, idx) => {
+    const rec = notifiedMap[g.teamKey];
+    const isDone = !!(rec && rec.sig === g.sig);
+    const isChg = !!(rec && rec.sig !== g.sig);
+    const msg = partnerMessageText(g, partnerIncludeTech);
+    const cardCls = 'partner-card' + (isDone ? ' is-done' : isChg ? ' is-changed' : '');
+    const statusPill = isDone
+      ? pill('full', 'แจ้งแล้ว ' + fmtTs(rec.ts).slice(11, 16), '✓')
+      : (isChg ? pill('warn', 'มีงานเปลี่ยนหลังแจ้ง', '⚠') : pill('off', 'ยังไม่แจ้ง'));
+    o += '<article class="' + cardCls + '" id="partnerCard_' + idx + '">';
+    o += '<div class="partner-card-head">';
+    o += '<div class="partner-card-title">';
+    o += '<h3>' + h(g.displayName) + ' ' + pill('info', g.activeItems.length + ' งาน') + (g.rawTeams.length > 1 ? ' ' + pill('off', 'รวม ' + g.rawTeams.length + ' ทีม') : '') + ' ' + statusPill + '</h3>';
+    if (g.rawTeams.length > 1) {
+      o += '<span class="small muted" title="' + h(g.rawTeams.join('\n')) + '">รวมจาก ' + g.rawTeams.length + ' Contract Team (กดดูรายการด้านล่าง)</span>';
+    } else if (g.rawTeams.length === 1 && g.rawTeams[0] !== g.displayName) {
+      const rt = g.rawTeams[0];
+      o += '<span class="small muted" title="' + h(rt) + '">Contract Team: <code>' + h(rt.length > 58 ? rt.slice(0, 55) + '…' : rt) + '</code></span>';
+    } else if (!g.rawTeams.length) {
+      o += '<span class="small muted">ไม่พบค่า Contract Team ในใบงาน</span>';
+    }
+    o += '</div>';
+    o += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">';
+    o += '<button type="button" class="btn small primary" data-act="partnerCopy" data-team="' + h(g.teamKey) + '"' + (!g.activeItems.length ? ' disabled' : '') + '>📋 คัดลอกข้อความ</button>';
+    o += '<button type="button" class="btn small" data-act="partnerToggleDone" data-team="' + h(g.teamKey) + '" title="' + (isDone ? 'เปลี่ยนเป็นยังไม่แจ้ง' : 'ทำเครื่องหมายว่าแจ้งแล้ว') + '">' + (isDone ? '✓ แจ้งแล้ว' : 'ทำเครื่องหมายแจ้งแล้ว') + '</button>';
+    o += '</div></div>';
+
+    if (g.rawTeams.length) {
+      o += '<div class="partner-alias-row"><span>ชื่อ Partner ในข้อความ:</span><input type="text" data-chg="partnerAlias" data-teams="' + h(JSON.stringify(g.rawTeams)) + '" value="' + h(g.displayName) + '" placeholder="' + h(extractPartnerShortName(g.rawTeams[0])) + '"><span class="small muted">(พิมพ์ชื่อเดียวกันเพื่อรวมบริษัทได้)</span></div>';
+    }
+
+    o += '<pre class="partner-msg-box">' + h(msg || '(ไม่ได้เลือกใบงานใด)') + '</pre>';
+
+    o += '<details><summary class="small muted" style="cursor:pointer;font-weight:600">ดู / เลือกใบงานรายใบ (' + g.activeItems.length + '/' + g.items.length + ' ใบ)</summary>';
+    if (g.rawTeams.length > 1) {
+      o += '<div class="small muted" style="margin:6px 0;padding:6px 10px;background:#f8fafc;border:1px solid var(--line-light);border-radius:8px"><b>Contract Team ที่รวมอยู่ (' + g.rawTeams.length + '):</b><br>' + g.rawTeams.map(rt => '• <code>' + h(rt) + '</code>').join('<br>') + '</div>';
+    }
+    o += '<ul class="partner-jobs-list">';
+    g.items.forEach(it => {
+      const checked = !partnerExcludedKeys.has(it.j.key);
+      o += '<li class="' + (checked ? '' : 'is-unchecked') + '">';
+      o += '<label><input type="checkbox" data-chg="partnerJobCheck" data-k="' + h(it.j.key) + '"' + (checked ? ' checked' : '') + '> <code>' + h(it.j.access || it.j.req || '-') + '</code> · ' + h(it.dtStr) + '</label>';
+      o += '<span class="small muted">S' + it.slot + ' · ' + h(it.dist || '-') + ' · ' + h(it.techName) + ' <a href="#" data-act="job" data-k="' + h(it.j.key) + '" style="margin-left:4px">ดูใบงาน</a></span>';
+      o += '</li>';
+    });
+    o += '</ul></details>';
+    o += '</article>';
+  });
+  o += '</div></div>';
+  return o;
 }
 function viewList(a, kind) {
   if (!a) return emptyState();
@@ -4534,7 +4860,7 @@ function jobDetail(key) {
   const cardSummaryBanner = e ? cellText(e) : cardSummarySingle;
   let o = '<h2>ใบงาน ' + h(j.req || '(ไม่มี Request No.)') + '</h2><div class="mbody"><dl class="kv">' +
     '<dt>รายละเอียดการ์ดงาน</dt><dd><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><code style="padding:4px 8px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;color:#1e3a8a;font-weight:700;user-select:all">' + h(cardSummarySingle) + '</code> <button type="button" class="btn small primary" data-act="copyJobText" data-copy="' + h(cardSummarySingle) + '">📋 คัดลอก</button></div></dd>' +
-    '<dt>Access Number</dt><dd>' + h(j.access) + '</dd><dt>Request No.</dt><dd>' + h(j.req) + '</dd><dt>Title</dt><dd>' + h(j.title) + (isFTTB(j.title) ? ' ' + pill('info', 'FTTB') : '') + (isPB(j.title) ? ' ' + pill('info', 'PB') : '') + '</dd>' +
+    '<dt>Access Number</dt><dd>' + h(j.access) + '</dd><dt>Request No.</dt><dd>' + h(j.req) + '</dd>' + (jobContractTeam(j) ? '<dt>Contract Team</dt><dd><b>' + h(jobContractTeam(j)) + '</b></dd>' : '') + '<dt>Title</dt><dd>' + h(j.title) + (isFTTB(j.title) ? ' ' + pill('info', 'FTTB') : '') + (isPB(j.title) ? ' ' + pill('info', 'PB') : '') + '</dd>' +
     '<dt>เวลานัด (ข้อมูลเดิม)</dt><dd>' + h(j.planRaw) + (j.timeErr ? ' ' + pill('risk', j.timeErr, '✖') : '') + '</dd><dt>Slot ตามเวลานัด</dt><dd>' + (natSlot(j) ? 'Slot ' + natSlot(j) + ' (' + SLOTS[natSlot(j) - 1].label + ')' : '-') + '</dd>' +
     '<dt>Address</dt><dd>' + h(j.address) + '</dd><dt>เขตลูกค้า</dt><dd><b>' + h(effDistrict(j) || 'รอตรวจสอบเขต') + '</b> <small class="muted">' + h(j.dOver ? 'ผู้ใช้กำหนดเอง' : j.dHow || '') + '</small><br><select id="dOver" data-chg="dover" data-k="' + h(key) + '"><option value="">— ใช้ค่าที่อ่านได้จากที่อยู่ —</option>' + names.map(n => '<option value="' + h(n.name) + '"' + (j.dOver === n.name ? ' selected' : '') + '>' + h(n.name) + ' (' + h(n.prov) + ')</option>').join('') + '</select></dd>' +
     '<dt>พิกัด</dt><dd>' + (j.coordSt === 'ok' ? j.lat + ', ' + j.lon : pill('warn', j.coordSt === 'missing' ? 'พิกัดไม่ครบ — ไม่สามารถคำนวณระยะทางได้' : 'พิกัดไม่ถูกต้อง — ไม่สามารถคำนวณระยะทางได้', '⚠') + ' <small>(' + h(j.latRaw) + ', ' + h(j.lonRaw) + ')</small>') + '</dd>' +
@@ -5043,6 +5369,72 @@ const ACT = {
       toast('เบราว์เซอร์ไม่อนุญาตคัดลอกอัตโนมัติ กรุณากด Ctrl+C เพื่อคัดลอก', 'warn');
     }
   },
+  partnerScope: t => { partnerFilterMode = t.dataset.mode || 'all'; render(); },
+  partnerJump: t => { const el = $('partnerCard_' + t.dataset.i); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+  partnerCopy: async (t, e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const d = curDate(); const a = d ? analyze(d) : null;
+    if (!a) return;
+    const teamKey = t.dataset.team;
+    const g = buildPartnerGroups(a, partnerFilterMode).find(x => x.teamKey === teamKey);
+    if (!g || !g.activeItems.length) { toast('ไม่มีใบงานที่จะคัดลอก', 'warn'); return; }
+    const txt = partnerMessageText(g, partnerIncludeTech);
+    const ok = await copyTextToClipboard(txt);
+    if (ok) {
+      if (!S.partnerNotified) S.partnerNotified = {};
+      if (!S.partnerNotified[d]) S.partnerNotified[d] = {};
+      S.partnerNotified[d][teamKey] = { ts: Date.now(), sig: g.sig, count: g.activeItems.length };
+      save(); render();
+      toast('✓ คัดลอกข้อความแจ้ง ' + g.displayName + ' แล้ว (' + g.activeItems.length + ' งาน)', 'ok');
+    } else {
+      toast('เบราว์เซอร์ไม่อนุญาตคัดลอกอัตโนมัติ กรุณาคลุมข้อความแล้วกด Ctrl+C', 'warn');
+    }
+  },
+  partnerCopyAll: async (t, e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const d = curDate(); const a = d ? analyze(d) : null;
+    if (!a) return;
+    const groups = buildPartnerGroups(a, partnerFilterMode).filter(g => g.activeItems.length);
+    if (!groups.length) { toast('ไม่มีใบงานที่จะคัดลอก', 'warn'); return; }
+    const txt = groups.map(g => partnerMessageText(g, partnerIncludeTech)).join('\n\n');
+    const ok = await copyTextToClipboard(txt);
+    if (ok) {
+      if (!S.partnerNotified) S.partnerNotified = {};
+      if (!S.partnerNotified[d]) S.partnerNotified[d] = {};
+      const now = Date.now();
+      groups.forEach(g => { S.partnerNotified[d][g.teamKey] = { ts: now, sig: g.sig, count: g.activeItems.length }; });
+      save(); render();
+      toast('✓ คัดลอกข้อความแจ้งครบ ' + groups.length + ' บริษัทแล้ว', 'ok');
+    } else {
+      toast('เบราว์เซอร์ไม่อนุญาตคัดลอกอัตโนมัติ กรุณากดคัดลอกรายบริษัท', 'warn');
+    }
+  },
+  partnerToggleDone: t => {
+    const d = curDate(); const a = d ? analyze(d) : null;
+    if (!a) return;
+    const teamKey = t.dataset.team;
+    const g = buildPartnerGroups(a, partnerFilterMode).find(x => x.teamKey === teamKey);
+    if (!S.partnerNotified) S.partnerNotified = {};
+    if (!S.partnerNotified[d]) S.partnerNotified[d] = {};
+    const cur = S.partnerNotified[d][teamKey];
+    if (cur && g && cur.sig === g.sig) {
+      delete S.partnerNotified[d][teamKey];
+      save(); render();
+      toast('เปลี่ยนสถานะ ' + (g ? g.displayName : teamKey) + ' เป็นยังไม่แจ้งแล้ว', 'info');
+    } else if (g) {
+      S.partnerNotified[d][teamKey] = { ts: Date.now(), sig: g.sig, count: g.activeItems.length };
+      save(); render();
+      toast('✓ ทำเครื่องหมายแจ้ง ' + g.displayName + ' แล้ว', 'ok');
+    }
+  },
+  partnerClearDone: () => {
+    const d = curDate();
+    if (d && S.partnerNotified && S.partnerNotified[d]) {
+      delete S.partnerNotified[d];
+      save(); render();
+      toast('ล้างสถานะแจ้ง Partner ของวันนี้แล้ว', 'ok');
+    }
+  },
   clearTech: t => { const d = curDate(), id = t.dataset.t, pl = S.plans[d]; if (pl && isFrozen(pl)) { toast('แพลนยืนยันแล้ว ต้องเปิดแก้ไขก่อน', 'err'); return; } if (isTechLocked(d, id)) { toast('ช่างคนนี้ล็อกงานอยู่ ปลดล็อกก่อนจึงล้างแพลนได้', 'err'); return; } const tc = S.techs.find(x => x.id === id), all = Object.values((pl || {}).assign || {}).filter(v => v.tech === id), n = all.filter(v => !v.locked).length, lockedN = all.length - n; if (!all.length) { toast('ช่างคนนี้ยังไม่มีงานในแพลน', 'info'); return; } if (!n) { toast('งานทั้งหมดของช่างคนนี้ (' + lockedN + ' ใบ) ถูกล็อกอยู่ (🔒) ปลดล็อกก่อนจึงล้างได้', 'err'); return; }
     openModal('<h2>ล้างแพลนของ ' + h(tc.name) + '?</h2><div class="mbody"><p>จะนำงานของช่างคนนี้ <b>' + n + ' ใบ</b> ออกจากแพลนวันที่ ' + fmtDateTH(d) + (lockedN ? ' <span class="muted">(งานที่ล็อกไว้ <b>' + lockedN + ' ใบ</b> จะคงอยู่ในตาราง)</span>' : '') + '</p><p class="muted">งานที่นำออกจะแสดงเป็น "⊘ นำออก" ในช่องเดิม กดนำกลับได้ และกดย้อนกลับได้ งานของช่างคนอื่นไม่ถูกแตะ</p></div><div class="mfoot"><button class="btn primary" data-act="clearTechDo" data-t="' + h(id) + '">ล้างแพลน ' + n + ' ใบ</button><button class="btn" data-act="closeModal">ยกเลิก</button></div>'); },
   clearTechDo: t => { const d = curDate(), id = t.dataset.t; closeModal(); const n = clearTech(d, id); render(); if (n) toast('ล้างแพลนแล้ว ' + n + ' ใบ (ย้อนกลับได้)', 'ok'); },
@@ -5265,6 +5657,10 @@ document.addEventListener('change', e => {
   else if (c === 'sheet') { pending.si = +t.value; setupPending(); showImport(); }
   else if (c === 'maptog') { mapHidden[t.dataset.t] = !t.checked; render(); }
   else if (c === 'pdate') { pending.date = t.value; }
+  else if (c === 'partnerAlias') { let rawList = []; try { rawList = JSON.parse(t.dataset.teams || '[]'); } catch (err) {} if (!rawList.length && t.dataset.team) rawList = [t.dataset.team]; if (!rawList.length) return; if (!S.settings.partnerAliases) S.settings.partnerAliases = {}; const val = t.value.trim(); rawList.forEach(raw => { const defName = extractPartnerShortName(raw); if (val && val !== defName) S.settings.partnerAliases[raw] = val; else delete S.settings.partnerAliases[raw]; }); save(); render(); toast('อัปเดตชื่อ Partner ในข้อความแจ้งแล้ว', 'ok'); }
+  else if (c === 'partnerMsgSub') { S.settings.partnerMsgSub = t.value.trim() || 'งานดังต่อไปนี้ โยกให้ทีมกลางวิ่ง'; save(); render(); }
+  else if (c === 'partnerIncludeTech') { partnerIncludeTech = t.checked; render(); }
+  else if (c === 'partnerJobCheck') { const k = t.dataset.k; if (!k) return; if (t.checked) partnerExcludedKeys.delete(k); else partnerExcludedKeys.add(k); render(); }
 });
 let _qRenderTimer = null, _cpqTimer = null;
 document.addEventListener('input', e => {
@@ -5653,6 +6049,7 @@ let _lastActivityTs = 0;
 function _tabDisplayName(t) {
   const m = {
     plan: "แพลนช่าง",
+    partner: "แจ้ง PartNer",
     unassigned: "งานที่จัดไม่ได้",
     review: "รอตรวจสอบ",
     map: "แผนที่เส้นทาง",
@@ -5832,6 +6229,18 @@ function _describeClickedElement(el) {
   }
   if (act === "dblSuggest") {
     return { action: "เปิดแนะนำงานเบิ้ล: " + _lookupTechName(ds.t) + " Slot " + (ds.s || ""), note: "" };
+  }
+  if (act === "partnerCopy") {
+    return { action: "แจ้ง PartNer - คัดลอกข้อความ: " + (ds.team || ""), note: "" };
+  }
+  if (act === "partnerCopyAll") {
+    return { action: "แจ้ง PartNer - คัดลอกข้อความทุกบริษัท", note: "" };
+  }
+  if (act === "partnerToggleDone") {
+    return { action: "แจ้ง PartNer - สลับสถานะแจ้งแล้ว: " + (ds.team || ""), note: "" };
+  }
+  if (act === "partnerClearDone") {
+    return { action: "แจ้ง PartNer - ล้างสถานะแจ้งแล้วทั้งหมดของวัน", note: "" };
   }
   if (act === "copyJobText") {
     return { action: "คัดลอกข้อความการ์ดงาน", note: ds.copy || "" };
